@@ -218,9 +218,10 @@ def create_worker_app(videos: VideoStore, jobs: JobStore) -> procrastinate.App:
 
 
 def run_worker(data_dir: Path, concurrency: int = 1) -> None:
-    if os.getpid() != 1:
+    if os.getppid() != 1 or Path("/proc/1/comm").read_text().strip() != "docker-init":
         raise ValueError(
-            "Run workers with Docker Compose so a worker crash also stops FFmpeg."
+            "Run workers with Docker Compose and its init process "
+            "so a worker crash also stops FFmpeg."
         )
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     videos = VideoStore(data_dir)
