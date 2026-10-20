@@ -1,0 +1,48 @@
+x-job-service: &job-service
+  build: .
+  user: "${LOCAL_UID:?Set LOCAL_UID in your environment}:${LOCAL_GID:?Set LOCAL_GID in your environment}"
+  environment:
+    VIDEO_PIPELINE_DATABASE_URL: postgresql://video_pipeline:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your environment}@postgres:5432/${VIDEO_PIPELINE_DATABASE_NAME:-video_pipeline}
+  volumes:
+    - ${VIDEO_PIPELINE_DATA_DIR:-./data}:/data
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: video_pipeline
+      POSTGRES_USER: video_pipeline
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your environment}
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U video_pipeline -d video_pipeline"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  init-jobs:
+    <<: *job-service
+    command: ["init-jobs", "--data-dir", "/data"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  worker:
+    <<: *job-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init-jobs:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    stop_grace_period: 1m
+    deploy:
+      replicas: 2
+
+volumes:
+  postgres-data:

@@ -253,8 +253,10 @@ between request threads.
   Did not verify the documentation page in a browser.
 - Passed locked dependency installation, Ruff formatting, Ruff linting, ty checks,
   and the package build.
-- Verified readable terminal JSON with `uv run python -m json.tool`. Updated
-  the README curl examples to use this formatter without changing API responses.
+- Made metadata and error responses indented JSON by default, with a trailing
+  newline. No flag or client-side formatter is required.
+- Verified raw upload and retrieval responses, `404` and `422` error responses,
+  and unchanged original download bytes. Removed formatter pipes from the README.
 - Stopped the review server after the manual workflow. Added no tests or smoke
   scripts. These changes have not run on GitHub CI yet.
 
@@ -264,6 +266,260 @@ The API is local-only and has no authentication or configured upload-size limit.
 Inspection runs during the upload request. Automatic conversion and job handling
 remain deferred. A process crash between the file move and database commit can
 leave an unreferenced original. Crash recovery is not part of this slice.
+
+## Slice 4: Queue and process editing requests
+
+Status: initial custom-queue implementation superseded by the correction below.
+
+### Scope and reasons
+
+- Accept an operation and its parameters at `POST /videos/{id}/jobs`.
+  The job format describes an edit, rather than making resolution the only
+  possible kind of request.
+- Start with the existing transcode and thumbnail operations. One job creates
+  one output; clients can submit several jobs for different outputs.
+  Additional edit types can be added without changing queue behavior.
+- Use the job table itself as a persistent queue. One separately started worker
+  processes it in submission order. Closing a client does not stop work.
+- Expose job listing, status, real FFmpeg progress, and errors.
+  Clients can disconnect and later retrieve the current state.
+- Provide both viewing and download URLs. Video viewing supports byte ranges
+  so players can seek.
+- Preserve existing direct inspect and process commands.
+- Keep cloud integration and UI work deferred. The earlier Typer changes remain
+  in the subagent's worktree, not this worktree.
+- Keep `README.md` limited to the project description. Put build details and
+  review instructions in this plan and the thread, not README command sections.
+- Keep automatic retries and worker-crash recovery for slice 5.
+
+### Initial tool decision (superseded)
+
+Reviewed [Huey's current SQLite and Postgres support](https://huey.readthedocs.io/en/stable/installation.html).
+A task framework would still need our job records and progress reporting.
+For this local, one-worker slice, use one SQLite job record as both the queue
+entry and visible status, rather than coordinate a framework queue with a
+second state store. No new queue service or dependency is required.
+
+Use SQLite's [JSON functions](https://sqlite.org/json1.html) and
+[UPDATE RETURNING](https://sqlite.org/lang_returning.html) to claim a queued
+record and return it in one atomic statement. Index the status expression used
+by that claim. Database connections close before FFmpeg runs.
+
+Use FFmpeg's documented `-progress pipe:1` output. Save its processed timestamp
+at FFmpeg's reporting interval, not once per video frame. Calculate conversion
+percentage only when duration is known. Reuse one FFmpeg execution helper for
+the direct command and worker.
+
+### Latency
+
+The user's target is upload-to-edit-ready latency, not model response time.
+Measure upload and inspection separately from requested editing work.
+Do not make every upload wait for a full conversion. A future editor may need
+additional preparation; this slice does not claim to measure that UI.
+
+### Acceptance criteria
+
+- Submit multiple jobs before starting a worker and observe `queued` states.
+- Observe a conversion's real intermediate progress while a later job waits.
+- Stop and restart the API while the worker continues to completion.
+- Confirm queued records survive an API restart.
+- View and download completed video and thumbnail outputs. Check media types,
+  inline versus attachment behavior, and a partial-content video request.
+- Confirm a failed edit does not prevent the next queued job from running.
+- Verify no-audio processing and the unchanged source.
+- Check invalid operations and heights, unknown IDs, and output-not-ready errors.
+- Run the existing formatter, linter, type checker, and build.
+- Add no tests or smoke scripts. Stop for user review before committing or pushing.
+
+### Local verification
+
+- Uploaded the 10.3 MB review video. The local upload-and-inspection request
+  returned `201` in about 0.23 seconds. This is not a cloud or editor-ready
+  benchmark.
+- Submitted a transcode job and a thumbnail job with `202` responses.
+  Both remained queued until a separate worker started.
+- Observed conversion progress at about 4.8% and 7.0% while the thumbnail job
+  remained queued. Progress came from FFmpeg's processed timestamps.
+- Stopped the review API during conversion. The worker finished that job,
+  then the thumbnail, while the API was stopped. Results were available after
+  the API restarted.
+- The queued full-video conversion took about 19.8 seconds under the current
+  machine load. The direct process command took about 20.0 seconds in a nearby
+  run. These observations do not establish a controlled performance comparison.
+- Retrieved and inspected the completed 480 x 360 H.264/AAC output, retaining
+  the 540.781-second duration and 25 fps.
+- Confirmed inline `video/mp4` viewing, attachment downloads, and identical
+  view/download bytes. A byte-range request returned `206` and 1,024 bytes.
+- Played three seconds directly from the output URL with `ffplay`. Opened
+  the 640 x 480 thumbnail with the image reader. Did not check a browser player.
+- Restarted the API with two more jobs queued. Both records remained queued.
+- Temporarily moved a review upload to check a missing-source failure. That job
+  became `failed`; the next job completed successfully. Restored the upload
+  and confirmed it still matched the original bytes.
+- Processed a video-only clip into 320 x 240 H.264 with no audio.
+- Confirmed `409` before an output was ready, `404` for an unknown video, and
+  `422` for an unsupported operation or invalid height.
+- Passed Ruff formatting, Ruff linting, ty checks, and the source/wheel build.
+  No automated tests or smoke scripts were added. GitHub CI has not run for
+  these unpushed changes.
+
+### Limits
+
+Run one worker and keep the API and worker on the same machine with the same
+data directory. The local queue is not a deployed shared cloud database.
+Abrupt worker termination or a database failure can leave a job marked
+`running`; automatic recovery and retries remain deferred. Graceful Ctrl+C
+handling was not exercised in an interactive terminal during this review.
+The current edit implementations are transcode and thumbnail. The job format
+can gain further explicitly supported operation types; it is not a general
+editing pipeline yet.
+
+## Queue correction: Use Procrastinate
+
+Status: implemented and reviewed. The startup and planned-shutdown follow-up is
+locally verified. Commit and push approval remain pending.
+
+### Approved scope
+
+- Run locally first, using PostgreSQL through Docker.
+- Use a maintained queue rather than our own claim query and polling worker.
+- Support one request containing several jobs. Reject the whole batch if any
+  item is invalid, and commit job records and queued tasks together.
+- Verify two workers executing separate jobs.
+- Recover unfinished jobs after a worker crash or planned shutdown, up to three
+  total attempts.
+  Do not automatically repeat ordinary edit errors or invalid inputs.
+- Preserve existing public job IDs, completed results, and viewing/download URLs.
+- Keep the README description-only. UI and cloud deployment remain deferred.
+- Complete independent review before any commit or push. Muse Wonder was
+  unavailable. Sonnet and Factory Droid with Kimi K3 completed source reviews.
+
+### Tool choice and responsibilities
+
+Use [Procrastinate](https://procrastinate.readthedocs.io/en/stable/) with
+PostgreSQL. It owns task registration, selection, worker coordination,
+heartbeats, and retry operations. Our application owns video operations,
+progress, public job records, and publishing finished files.
+
+Its documented stalled-job recovery requires enabling a periodic task; it is
+not automatic merely because the dependency is installed. Our maintenance task
+uses the library's `get_stalled_jobs`, `retry_job`, and `finish_job` APIs.
+It checks once per minute, using the library's 30-second heartbeat threshold.
+Recovery requires an available worker; when all workers are stopped, work
+waits until a worker starts again.
+
+Workers run as PID 1 in Docker containers. A worker crash therefore also stops
+its FFmpeg child process. A file lock protects each job's attempt directory.
+Recovery acquires that lock and rechecks the queue attempt before removing
+partial files or retrying work. It skips attempts that still hold the lock.
+
+On a planned shutdown, workers allow 50 seconds for running jobs to finish.
+Procrastinate then asks unfinished jobs to abort. A task retry strategy permits
+another attempt only when the public attempt count is below three. That count
+includes imported attempts. The SDK excludes user-requested aborts from this
+shutdown retry path. Ordinary processing errors do not receive a retry.
+Each retry starts processing again from the original, not from a partial frame.
+
+Huey was considered, but its documented hard-kill task-loss behavior does not
+meet this requirement alone. RQ requires Redis/Valkey as another service.
+Procrastinate provides the required PostgreSQL-based queue and batch support.
+
+### Data and configuration
+
+PostgreSQL holds queue tasks, job records, and progress. Existing uploaded-video
+metadata remains in SQLite, and video bytes remain on disk.
+
+`init-jobs` initializes the library schema and imports legacy job records in a
+transaction. Completed jobs are not re-enqueued. Unfinished records retain
+their IDs and are re-enqueued; a previously started attempt counts toward the
+three-attempt limit. Re-running the import does not duplicate existing jobs.
+The old SQLite records and output files are not deleted or rewritten.
+
+Each execution attempt writes to its own temporary directory. A successful
+edit moves its completed file into place. Viewing and download endpoints expose
+it only after the queue reports success.
+
+The local Compose service is PostgreSQL 17, bound to `127.0.0.1:15432`, with a
+named volume. `POSTGRES_PASSWORD` and `VIDEO_PIPELINE_DATABASE_URL` come from
+the environment; no credential file was written or committed. Retain the same
+PostgreSQL password when recreating a container that reuses the volume.
+
+Compose runs one `init-jobs` service after PostgreSQL becomes healthy. Both workers
+wait for that service to complete successfully. The setup service and workers
+share the same database configuration, user ID, and data directory.
+
+The Dockerfile installs locked dependencies before copying source code. Source
+changes therefore do not invalidate the dependency-installation layer.
+
+### Initial queue verification
+
+- Imported the four existing development jobs, preserving IDs and terminal
+  states. Repeated initialization imported zero duplicates.
+- Submitted invalid batches with an invalid height or missing video. Neither
+  created application records or queue tasks.
+- Submitted a valid three-job batch with `202`. Two workers claimed distinct
+  conversion jobs concurrently while the third waited.
+- Killed a worker during conversion at about 1.9%. The output returned `409`,
+  and the surviving worker later completed the same public job on attempt two.
+- Killed a separate job's worker on attempts one, two, and three. Recovery
+  stopped with `failed`, three attempts, and no published output.
+- Added two explicitly synthetic queued/running legacy records in the isolated
+  review dataset. Both imported and completed under their original IDs; the
+  previously running record retained its earlier attempt count.
+- Existing direct inspection remained functional, and zero concurrency was
+  rejected with exit code 2.
+- Validation used a separate `video_pipeline_review` PostgreSQL database and
+  `data/queue-review` files. No original source video was modified.
+- No automated tests or smoke scripts were added. GitHub CI has not run for
+  these uncommitted changes.
+
+### Review and follow-up verification
+
+- Sonnet identified orphan FFmpeg processes after a native worker crash and
+  maintenance recovery issues. Workers now run in Docker, recovery rechecks the
+  current attempt under a file lock, and maintenance uses a queueing lock.
+  Maintenance retention deletes only old maintenance tasks, not user job history.
+- Kimi K3 reviewed the source without executing it. The proposed attempt-count
+  defect was rejected after checking the installed SDK, PostgreSQL records, and
+  HTTP responses. First-attempt success reported one attempt, recovered success
+  reported two, and failure at the limit reported three.
+- Accepted Kimi's startup dependency and Docker build-layer findings. The user
+  also approved recovery after planned shutdowns. Deleted the temporary review
+  report after discussion. Did not change encoder settings or add handling for
+  manually deleted database rows or output files.
+- Started a separate Compose project with a new PostgreSQL volume and
+  `data/startup-review`. Database setup exited with code zero before either
+  worker started. Both workers remained running with zero restarts.
+- Used a 2,163.124-second development copy containing the review video four
+  times. Stopped its worker during conversion. Shutdown waited about 50.7 seconds
+  and exited with code zero. The same public job completed on attempt two.
+- Stopped another conversion on attempts one, two, and three. It became failed
+  at three attempts with no output and no remaining attempt directories.
+- A missing-source edit failed on attempt one with a recorded error. Restored
+  the source immediately after the check.
+- Confirmed that a second container could not acquire the running attempt's
+  file lock. The recovered job left no first-attempt directory.
+- Retrieved the recovered output through both viewing and download URLs.
+  Both returned `200` with identical bytes. `ffprobe` reported 480 x 360 H.264
+  video, AAC audio, and the expected duration. Source checksums remained unchanged.
+- Rebuilt the images after a source-only change. Docker reused the dependency
+  installation layer and installed only the project in the final sync step.
+- Repeated Compose startup with the existing database and files. Initialization
+  imported zero duplicate jobs. All public job records and the completed output
+  retained their checksums.
+- Passed `uv sync --locked`, `uv run ruff format --check .`,
+  `uv run ruff check .`, `uv run ty check`, `uv build`, Compose configuration
+  validation, image builds, and `git diff --check`.
+- Stopped the new review API and Compose services. Kept their database volume
+  and review files. Stopping idle workers immediately after recreation required
+  Docker's forced stop with exit code 137. No edit was running. The cause of
+  that startup-window behavior has not been confirmed.
+- The earlier three-crash limit check used native workers. A Docker hard-crash
+  check confirmed that FFmpeg stopped with its worker and the job later
+  succeeded on attempt two. A full three-crash Docker run and a crash during
+  maintenance recovery have not been repeated after the review fixes.
+- Added no automated tests or smoke scripts. These follow-up changes have not
+  received a separate external review or run on GitHub CI.
 
 ## Review loop
 
