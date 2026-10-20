@@ -173,6 +173,98 @@ No parallel processing, hardware encoder selection, or model services are needed
   `uv run ty check`.
 - Added no automated tests or smoke scripts.
 
+## Slice 3: Accept and store uploads
+
+Status: locally verified and approved after user review. Slice 3 is complete.
+
+### Deliverables
+
+- A `serve` command for an HTTP API on `127.0.0.1`.
+- `POST /videos` to upload, preserve, and inspect an original.
+- `GET /videos/{id}` to retrieve persistent video properties.
+- `GET /videos/{id}/original` to download the unchanged original.
+- SQLite records and local original-file storage under a selected data directory.
+- Factual setup and usage documentation in `README.md`.
+
+### Tool decision
+
+Reviewed [FastAPI's file upload support](https://fastapi.tiangolo.com/tutorial/request-files/)
+and [Pydantic's supported types](https://docs.pydantic.dev/latest/api/standard_library_types/)
+through Context7. Use `UploadFile` rather than load the entire upload into a byte
+string. Use Pydantic to serialize the existing inspection dataclasses, including
+exact fraction frame rates. Uvicorn runs the local server.
+
+Reviewed [FastAPI's SQLModel example](https://fastapi.tiangolo.com/tutorial/sql-databases/)
+and [Python's SQLite API](https://docs.python.org/3.12/library/sqlite3.html).
+One table needs only inserts and lookups by ID. Use built-in SQLite rather than
+add SQLModel and SQLAlchemy. Store each typed record as JSON with an indexed ID.
+Open and close a database connection per operation. Do not share connections
+between request threads.
+
+### Behavior
+
+- Accept a multipart `file` field. Inspect actual content rather than trust its
+  filename or declared content type.
+- Copy uploads through file objects into temporary storage. Publish the original
+  under a generated UUID only after inspection succeeds.
+- Keep the supplied filename as metadata. Never use it as a filesystem path.
+- Return `201` with the stored record and a `Location` header.
+- Return `422` for unreadable media or an input without video, and `404` for an
+  unknown ID. Remove temporary files from rejected uploads.
+- Run blocking file work, inspection, and SQLite operations in synchronous
+  endpoints so FastAPI runs them outside the main async event loop.
+- Keep existing inspect and process commands unchanged in behavior.
+- Do not add authentication, remote hosting, queues, workers, automatic conversion,
+  a frontend, tests, or smoke checks.
+
+### Acceptance criteria
+
+- Start the documented server command and upload the user-selected video with curl.
+- Inspect the real response shape, status code, and stored properties.
+- Retrieve metadata and download the original. Compare its bytes with the source.
+- Restart the server with the same data directory and retrieve the same record.
+- Upload a second video with the same filename without replacing the first.
+- Verify no-audio input, invalid media, missing upload field, and unknown IDs.
+- Confirm rejected media leaves no record or original, and supplied filenames
+  cannot control the storage path.
+- Run the existing static checks and package build.
+- Stop for user review before slice 4. Do not commit or push without approval.
+
+### Local verification
+
+- Started `uv run video-pipeline serve` and uploaded the review video with curl.
+  The server returned `201`, a `Location` header, and the expected JSON fields.
+- Confirmed 540.781 seconds, 640 x 480 AV1 video at 25 fps, and Opus audio.
+- Retrieved the record with `200`. Its JSON matched the upload response.
+- Downloaded the original with `200` and compared its bytes with the source.
+  The files matched exactly.
+- Uploaded the same filename again. It received a different ID and did not
+  replace the first original.
+- Rejected text labeled as MP4 and audio-only media with `422`. The database
+  record count and stored-file count did not change. No temporary upload remained.
+- Confirmed `422` for a missing upload field or malformed UUID, and `404` for an
+  unknown UUID.
+- Uploaded a video-only clip with the supplied filename `../../outside.mp4`.
+  The server stored it under a UUID inside `originals`, retained the supplied name
+  only as metadata, and reported an empty audio-stream list.
+- Restarted the server and retrieved the same metadata and original bytes with
+  `200`. Both still matched the source.
+- Retrieved `/docs` and `/openapi.json` with `200`. Checked the documented routes.
+  Did not verify the documentation page in a browser.
+- Passed locked dependency installation, Ruff formatting, Ruff linting, ty checks,
+  and the package build.
+- Verified readable terminal JSON with `uv run python -m json.tool`. Updated
+  the README curl examples to use this formatter without changing API responses.
+- Stopped the review server after the manual workflow. Added no tests or smoke
+  scripts. These changes have not run on GitHub CI yet.
+
+### Limits
+
+The API is local-only and has no authentication or configured upload-size limit.
+Inspection runs during the upload request. Automatic conversion and job handling
+remain deferred. A process crash between the file move and database commit can
+leave an unreferenced original. Crash recovery is not part of this slice.
+
 ## Review loop
 
 1. Confirm the current slice and its acceptance criteria.

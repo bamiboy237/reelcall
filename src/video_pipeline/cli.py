@@ -2,6 +2,9 @@ import argparse
 import subprocess
 from pathlib import Path
 
+import uvicorn
+
+from video_pipeline.api import create_app
 from video_pipeline.inspection import VideoInfo, inspect_video
 from video_pipeline.processing import process_video
 
@@ -31,7 +34,7 @@ def print_video_info(info: VideoInfo) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="video-pipeline", description="Inspect and process local videos."
+        prog="video-pipeline", description="Inspect, process, and store local videos."
     )
     commands = parser.add_subparsers(dest="command", required=True)
     inspect = commands.add_parser("inspect", help="Inspect a local video.")
@@ -52,16 +55,26 @@ def main() -> None:
         required=True,
         help="New directory for the output files.",
     )
+    serve = commands.add_parser("serve", help="Run the local upload API.")
+    serve.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path("data"),
+        help="Directory for stored videos.",
+    )
+    serve.add_argument("--port", type=int, default=8000, help="Local HTTP port.")
     args = parser.parse_args()
 
     try:
         if args.command == "inspect":
             print_video_info(inspect_video(args.path))
-        else:
+        elif args.command == "process":
             print(f"Processing: {args.path}", flush=True)
             result = process_video(args.path, args.height, args.output_dir)
             print(f"Video: {result.video_path}")
             print(f"Thumbnail: {result.thumbnail_path}")
+        else:
+            uvicorn.run(create_app(args.data_dir), host="127.0.0.1", port=args.port)
     except subprocess.CalledProcessError as error:
         parser.exit(1, f"error: {error.stderr.strip()}\n")
     except (OSError, ValueError) as error:

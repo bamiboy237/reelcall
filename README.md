@@ -67,6 +67,54 @@ or change the original.
 If processing fails, the command reports the error and exits with code 1.
 Partial outputs remain in the output directory. Use a new directory to retry.
 
+## Upload and retrieve videos
+
+Start the local API:
+
+```sh
+uv run video-pipeline serve
+```
+
+The server listens on `http://127.0.0.1:8000`. Open
+`http://127.0.0.1:8000/docs` for interactive API documentation.
+Use `--port` to change the port and `--data-dir` to change the storage directory.
+The API has no authentication and is for local use only.
+
+In another terminal, upload a video:
+
+```sh
+curl --fail-with-body -sS \
+    -F "file=@path/to/video.mp4" \
+    http://127.0.0.1:8000/videos | uv run python -m json.tool
+```
+
+The response has status `201` and includes the video's `id`, `filename`,
+`created_at`, `duration_seconds`, `video_streams`, and `audio_streams`.
+Frame rates are exact fraction strings such as `"25"` or `"30000/1001"`.
+Unavailable properties are `null`. A video without audio has an empty
+`audio_streams` list.
+
+Replace `paste-the-returned-id` below with the response's `id` value.
+Retrieve its properties or download its original bytes:
+
+```sh
+VIDEO_ID="paste-the-returned-id"
+curl --fail-with-body -sS "http://127.0.0.1:8000/videos/$VIDEO_ID" \
+    | uv run python -m json.tool
+curl --fail-with-body -sS "http://127.0.0.1:8000/videos/$VIDEO_ID/original" \
+    --output downloaded-video.mp4
+```
+
+The server stores originals under generated IDs in `data/originals/` and records
+their properties in `data/videos.sqlite3`. Supplied filenames are metadata, not
+storage paths. Keep both the database and original files when moving the data
+directory. Records and files remain available after a server restart.
+
+Uploads run inspection before returning. They do not start conversion or
+thumbnail extraction. A file without readable video returns `422` and is not
+stored. An unknown video ID returns `404`. A malformed ID or missing upload
+field returns `422`.
+
 ## Development checks
 
 ```sh
