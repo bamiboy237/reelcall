@@ -103,6 +103,76 @@ Reconsider media libraries when a later slice needs more than command execution.
   `uv run ty check`.
 - Added no automated tests or smoke scripts.
 
+## Slice 2: Process one local video
+
+Status: locally verified and approved after user review. Slice 2 is complete.
+
+### Deliverables
+
+- A `process` command with a local video path, target height, and output directory.
+- An H.264 MP4 at the selected height, with the original aspect ratio.
+- AAC audio for every source audio stream, when present.
+- A JPEG thumbnail from the first frame of the converted video.
+- Setup and usage instructions in `README.md`, without build commentary.
+
+### Behavior
+
+- Accept a positive even height. Calculate an even width with FFmpeg's scale filter.
+- Reuse inspection to read the source and select its first video stream.
+- Create a new output directory containing `video.mp4` and `thumbnail.jpg`.
+- Refuse an existing output directory. Do not overwrite the source or other files.
+- Run conversion and thumbnail extraction in sequence.
+- Report output paths only after both operations succeed.
+- Report failures without silent fallbacks. Leave partial outputs for inspection.
+
+### Tool decision
+
+Reviewed [ffmpeg-python's conversion and thumbnail examples](https://github.com/kkroening/ffmpeg-python/tree/master/examples)
+and [PyAV's scope](https://pyav.org/docs/stable/). Both can handle media processing,
+but this slice needs only a scale filter and single-frame extraction.
+Keep direct FFmpeg calls rather than add a Python runtime dependency.
+
+Checked [FFmpeg's scale documentation](https://ffmpeg.org/ffmpeg-filters.html#scale)
+through Context7. `scale=-2:height` preserves display aspect ratio and calculates
+an even width. Use H.264 with `yuv420p` and AAC in MP4 for common playback support.
+Use two sequential commands so thumbnail extraction reads the finished video.
+No parallel processing, hardware encoder selection, or model services are needed.
+
+### Acceptance criteria
+
+- Process the user-selected video at 360 pixels high.
+- Inspect the converted video for 480 x 360 dimensions, H.264 video, AAC audio,
+  and the expected duration and frame rate.
+- Play the converted video and open its thumbnail for visual review.
+- Process a video without audio and retain the absence of audio.
+- Confirm that invalid heights and an existing output directory fail clearly.
+- Compare source and output checksums to confirm that failed reruns do not overwrite
+  them.
+- Run formatting, linting, and type checks.
+- Add no automated tests or smoke scripts. Stop for user review before slice 3.
+
+### Local verification
+
+- Processed the full review video at 360 pixels high in about 10 seconds.
+- Inspected the output: 540.781 seconds, H.264 video, 480 x 360, 25 fps, and AAC
+  audio. The original and converted video have the same reported duration.
+- Opened the JPEG with the image reader. It is 480 x 360 and shows the first frame.
+- Played the first five seconds with `ffplay`. Playback exited successfully.
+  Did not watch the full video.
+- Desktop window inspection was unavailable: `/bin/sh: orca: command not found`.
+  User review of visible playback remains.
+- Processed a three-second video-only copy at 240 pixels high. The result was
+  320 x 240 H.264 video with `Audio: none`. Paths containing spaces worked.
+- Confirmed that odd and zero heights fail with exit code 1.
+- Confirmed that an existing output directory fails with exit code 1.
+- Compared SHA-256 checksums. The source remained unchanged after processing.
+  The source, converted video, and thumbnail remained unchanged after the failed
+  rerun against an existing directory.
+- Built the source distribution and wheel with `uv build`.
+- Passed `uv run ruff format --check .`, `uv run ruff check .`, and
+  `uv run ty check`.
+- Added no automated tests or smoke scripts.
+
 ## Review loop
 
 1. Confirm the current slice and its acceptance criteria.

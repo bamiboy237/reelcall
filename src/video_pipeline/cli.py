@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 
 from video_pipeline.inspection import VideoInfo, inspect_video
+from video_pipeline.processing import process_video
 
 
 def print_video_info(info: VideoInfo) -> None:
@@ -30,20 +31,38 @@ def print_video_info(info: VideoInfo) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="video-pipeline", description="Inspect a local video's properties."
+        prog="video-pipeline", description="Inspect and process local videos."
     )
     commands = parser.add_subparsers(dest="command", required=True)
     inspect = commands.add_parser("inspect", help="Inspect a local video.")
     inspect.add_argument("path", type=Path, help="Path to the local video.")
+    process = commands.add_parser(
+        "process", help="Resize a video and save a thumbnail."
+    )
+    process.add_argument("path", type=Path, help="Path to the local video.")
+    process.add_argument(
+        "--height",
+        type=int,
+        required=True,
+        help="Output height in pixels (positive even).",
+    )
+    process.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="New directory for the output files.",
+    )
     args = parser.parse_args()
 
     try:
-        info = inspect_video(args.path)
-    except FileNotFoundError:
-        parser.exit(1, "error: ffprobe not found. Install FFmpeg and add it to PATH.\n")
+        if args.command == "inspect":
+            print_video_info(inspect_video(args.path))
+        else:
+            print(f"Processing: {args.path}", flush=True)
+            result = process_video(args.path, args.height, args.output_dir)
+            print(f"Video: {result.video_path}")
+            print(f"Thumbnail: {result.thumbnail_path}")
     except subprocess.CalledProcessError as error:
         parser.exit(1, f"error: {error.stderr.strip()}\n")
-    except ValueError as error:
+    except (OSError, ValueError) as error:
         parser.exit(1, f"error: {error}\n")
-
-    print_video_info(info)

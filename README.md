@@ -41,6 +41,32 @@ Inspection does not change the original file.
 A missing file, unreadable media, or an input without video produces an error
 and exit code 1.
 
+## Resize a video and extract a thumbnail
+
+FFmpeg must include the `libx264` encoder.
+
+```sh
+uv run video-pipeline process "path/to/video.mp4" \
+    --height 360 \
+    --output-dir outputs/video-360p
+```
+
+Set `--height` to a positive even number of pixels. The width adjusts to preserve
+the aspect ratio. A height larger than the source enlarges the video.
+
+The command creates two files:
+
+- `video.mp4`: the first video stream encoded as H.264, with all audio streams
+  encoded as AAC when present. Subtitles and other streams are not included.
+- `thumbnail.jpg`: the first frame of the converted video.
+
+The output directory must not exist. The command creates it and prints the
+output paths after both files are ready. It does not overwrite existing files
+or change the original.
+
+If processing fails, the command reports the error and exits with code 1.
+Partial outputs remain in the output directory. Use a new directory to retry.
+
 ## Development checks
 
 ```sh
