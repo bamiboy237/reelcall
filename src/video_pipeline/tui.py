@@ -76,7 +76,7 @@ SECRETS = (
     (re.compile(r"(postgres(?:ql)?://[^:/@\s]+:)[^@\s]+@"), r"\1•••@"),
     (re.compile(r"hf_[A-Za-z0-9]{8,}"), "hf_•••"),
 )
-START_SERVICE = "docker compose up -d"
+START_SERVICE = "reelcall"
 NO_PREVIEW = "No preview."
 MIN_SCORE = TypeAdapter(SearchRequest.model_fields["min_score"].rebuild_annotation())
 
@@ -1278,7 +1278,7 @@ class Activity(ModalScreen[None]):
         service = Text()
         if app.offline:
             service.append(f"{app.offline}\n", ERROR)
-            service.append("Start it with ", FAINT)
+            service.append("Restart the app with ", FAINT)
             service.append(START_SERVICE, TEXT)
         self.query_one(".service", Static).update(service)
         self.query_one(".service").display = bool(app.offline)
@@ -1460,7 +1460,7 @@ class ErrorSheet(ModalScreen[None]):
 
 
 class Pipeline(App[None]):
-    TITLE = "video pipeline"
+    TITLE = "Reelcall"
     ENABLE_COMMAND_PALETTE = False
     CSS = """
     Screen { background: #0b0b0b; color: #d0d0d0; padding: 1 3 0 3; }
@@ -1632,7 +1632,7 @@ class Pipeline(App[None]):
         try:
             store = JobStore(self.videos.database_path, database_url())
         except ValueError:
-            reason = "Set VIDEO_PIPELINE_DATABASE_URL to reach the job service."
+            reason = "The job service isn't connected."
             self.call_from_thread(self.go_offline, reason)
             return
         try:
@@ -1708,7 +1708,7 @@ class Pipeline(App[None]):
     def submit(self, video: VideoRecord, operation: ProcessingOperation) -> None:
         jobs = self.jobs
         if jobs is None:
-            message = f"Start the job service first: {START_SERVICE}"
+            message = f"Restart with {START_SERVICE} to start the job service."
             self.call_from_thread(self.notice, Text(message, ERROR), 6)
             return
         try:

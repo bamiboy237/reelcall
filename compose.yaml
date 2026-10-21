@@ -1,9 +1,11 @@
 x-job-service: &job-service
+  image: "${REELCALL_WORKER_IMAGE:-video-pipeline-worker:local}"
   build: .
   user: "${LOCAL_UID:?Set LOCAL_UID in your environment}:${LOCAL_GID:?Set LOCAL_GID in your environment}"
   environment:
     VIDEO_PIPELINE_DATABASE_URL: postgresql://video_pipeline:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your environment}@postgres:5432/${VIDEO_PIPELINE_DATABASE_NAME:-video_pipeline}
     HF_HOME: /data/models
+    HF_TOKEN: ${HF_TOKEN:-}
   volumes:
     - ${VIDEO_PIPELINE_DATA_DIR:-./data}:/data
 
@@ -15,7 +17,7 @@ services:
       POSTGRES_USER: video_pipeline
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your environment}
     ports:
-      - "127.0.0.1:15432:5432"
+      - "127.0.0.1:${VIDEO_PIPELINE_POSTGRES_PORT-15432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:

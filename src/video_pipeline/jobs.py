@@ -158,9 +158,7 @@ class JobStore:
                 "SELECT to_regclass('video_jobs') AS table_name"
             ).fetchall()[0]
         if row["table_name"] is None:
-            raise ValueError(
-                "Initialize the job database with 'video-pipeline init-jobs'."
-            )
+            raise ValueError("Initialize the job database with 'reelcall init-jobs'.")
 
     def initialize(self) -> int:
         self.outputs_dir.mkdir(parents=True, exist_ok=True)
