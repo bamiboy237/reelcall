@@ -795,6 +795,131 @@ accuracy claim. The detailed report remains in ignored local outputs.
 - The API restart retained the index and its metadata. Browser playback and
   media-fragment seeking were not verified.
 
+## Processing optimization
+
+Status: implemented on `claude/intelligent-clarke-jgxetg` and verified in a
+4-core Intel Xeon cloud container (AMX, no GPU), float32 on CPU. Docker was
+unavailable there, so the queued Compose worker was not exercised. The CLI
+index path and the API used the same indexing and search code.
+
+### Where the time went
+
+Profiled one eight-second window of a 640 x 480 H.264/AAC video before changing
+anything. Model inference took about 34 seconds: vision tower 30.0, language
+model 3.0, audio tower 1.0. Reading the window's frames and audio took about
+0.4 seconds. The vision tower was the target; decoding was not.
+
+### Changes
+
+- Encode each distinct frame once. Gemma's vision tower encodes video frames
+  independently; frames attend only within themselves. With the default
+  8-second window and 4-second stride, every frame appeared in two windows and,
+  in each, in both the visual and combined inputs: four vision passes per frame.
+  The indexing embedder now replaces the model instance's `get_video_features`
+  with a per-frame cache keyed by a hash of the frame's pixel and position
+  tensors, and `get_audio_features` with a single-entry cache shared by the
+  audio and combined inputs. The language model still receives the same
+  inputs. Query-only embedders do not install the caches.
+- Decode audio once per video instead of starting FFmpeg for every window.
+  Windows slice that waveform and pad silence after a short track, as `apad`
+  did before. The full track costs 64 KB per second of video, about 230 MB
+  per hour, in the indexing process.
+- Enable PyAV's threaded decoding for sampled frames.
+- Rank search results with one matrix product per view, read each video
+  record once, and build response objects only until the limit is reached.
+- Load the API's query model in a background thread at startup. Other routes
+  respond during the load. A search that arrives first waits for it.
+
+The index profile and `sampling_version` are unchanged. Existing indexes stay
+valid and are reused, since frames and visual vectors match exactly and audio
+vectors differ only slightly (below).
+
+### Results
+
+| Measure | Before | After |
+| --- | --- | --- |
+| Index a 60 s H.264/AAC video, 15 windows | 488.4 s | 176.5 s (2.77x) |
+| Steady-state window inference | about 32 s | about 11.7 s |
+| Read all windows of a 540 s H.264 video | 53.4 s | 25.0 s |
+| Read all windows of a 540 s AV1/Opus video | 55.6 s | 44.6 s |
+| Rank 10,000 windows, mean of 40 queries | 79.7 ms | 12.5 ms |
+| Rank 50,000 windows, mean of 40 queries | 436 ms | 112 ms |
+| First API search after startup | 11.4 s | 0.11 s |
+
+After the change, a steady-state window spends 7.1 s in the vision tower
+(four new frames), 3.8 s in the language model, 0.4 s in the audio tower,
+0.1 s hashing and 0.2 s decoding. Threaded decoding did not speed up AV1.
+
+### Equivalence checks
+
+- Re-indexed the same 60-second video with the old and new code. Window
+  boundaries, sampled frame timestamps and thumbnail bytes were identical.
+  Visual vectors were identical (minimum cosine 1.0). Combined vectors had a
+  minimum cosine of 0.99976 and audio vectors 0.99331.
+- The audio difference comes from decoding: each old per-window decode seeked
+  and restarted the AAC decoder, which changed a few samples, mostly at window
+  starts. Cross-correlation of old and new waveforms peaked at lag 0. One
+  continuous decode has no restarts.
+- Compared windows on a file whose audio stream starts at 1.976 s and ends
+  before the video, and on one with silence before and after its tone.
+  Leading silence, sample counts and padding after the track matched the old
+  output. A video-only file indexed without audio vectors.
+- Threaded decoding returned byte-identical frames and timestamps for
+  45 windows each of the 540-second H.264 and AV1 videos.
+- Ranked synthetic 10,000- and 50,000-window corpora with fixed query vectors
+  through the old and new code, across all modes and with and without a
+  minimum score. Every response had the same hits in the same order. Scores
+  differed by at most 1e-6 in the last rounded digit, from float32 summation
+  order.
+- Ran the HTTP workflow against a local PostgreSQL and the indexed data:
+  search in every mode, scoped search, an unmatched minimum score, and a
+  JPEG thumbnail.
+- Passed Ruff formatting, Ruff linting and ty. Added no automated tests or
+  smoke scripts; the benchmark scripts stayed outside the repository.
+
+### Not changed, with measurements
+
+- bfloat16 inference on this AMX CPU took 2.1 to 2.3 s per window, with
+  cosine about 0.999 against float32. It changes stored vectors and depends on
+  hardware: the M1 has no AMX. Adopt it only after the 30-query evaluation, as
+  a new index profile.
+- Attention already uses PyTorch SDPA in the vision tower and language model.
+  The audio tower supports only eager attention.
+- At 50,000 windows, loading vectors from SQLite took 0.5 to 2.6 s per search
+  and outweighs ranking. The current corpus has 162 windows. An in-process
+  vector cache would need invalidation across the API and workers; defer it
+  until the corpus needs it.
+- FFmpeg transcode and clip settings are unchanged. They are not the
+  bottleneck in the measured workflows.
+
+### PR review follow-up
+
+- Found and fixed a ranking-equivalence regression. The previous implementation
+  sorted the public six-decimal scores, preserving input order for equal scores.
+  Sorting unrounded values instead could select a different overlapping window.
+  A concrete normalized-vector example changed the result from 0–8 seconds to
+  4–12 seconds even though both displayed 0.5.
+- Keep batched scoring, but apply the minimum-score filter before stable sorting
+  by rounded scores. Compare thresholds as float64 so a Python minimum score is
+  not rounded down to float32 during the vectorized comparison.
+- Compared the previous and updated rankers on all 30 existing query vectors,
+  four search modes, and five thresholds: 600 comparisons returned identical
+  hit identities and ordering. Rounded scores differed by at most 0.000001.
+  Checked close-score ties, threshold boundaries, empty input, and absent views.
+- On the M1, compared two overlapping two-second windows from a real MP4 using
+  the same model with and without feature reuse. Frame pixels, sample times,
+  and audio sample counts matched. Vision tower work fell from eight frames to
+  three, and audio tower calls fell from four to two.
+- The minimum vector cosine across those windows was 1.0 for visual, 0.9999964
+  for audio, and 0.9999997 for combined. These are bounded local checks, not a
+  repeat of the full Xeon timing benchmark above.
+- Ran the real CLI indexing and search workflow on a six-second H.264/AAC
+  video. All three windows indexed successfully, and a title query returned
+  the expected final window. Locked sync, Ruff, ty, and the package build passed.
+- Reviewed the feature hooks against the installed Transformers 5.20.2 forward
+  methods. Docker stayed paused. The queued worker and HTTP startup workflow
+  were not repeated locally, and no automated tests or smoke scripts were added.
+
 ## Review loop
 
 1. Confirm the current slice and its acceptance criteria.

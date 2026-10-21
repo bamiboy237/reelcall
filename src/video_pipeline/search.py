@@ -24,6 +24,7 @@ from video_pipeline.embeddings import (
     SAMPLE_RATE,
     VISION_TOKENS,
     Embedder,
+    read_audio,
     read_window,
 )
 from video_pipeline.storage import VideoRecord, VideoStore
@@ -188,12 +189,13 @@ class SearchStore:
             rows = []
             start = 0.0
             duration = video.duration_seconds
+            audio = read_audio(path) if video.audio_streams else None
             while start < duration:
                 end = min(start + settings.window_seconds, duration)
                 next_start = start + settings.stride_seconds
                 if end < duration and duration - next_start < 1 / FRAME_RATE:
                     end = duration
-                media = read_window(path, start, end, bool(video.audio_streams))
+                media = read_window(path, start, end, audio)
                 if not media.frames and media.video_ended:
                     break
                 if media.frames:
@@ -283,43 +285,49 @@ class SearchStore:
     def rank(
         request: SearchRequest, query: np.ndarray, rows: list[sqlite3.Row]
     ) -> SearchResponse:
-        candidates = []
         modalities = (
             ("visual", "audio", "combined")
             if request.mode == "all"
             else (request.mode,)
         )
-        for row in rows:
-            scores = {
-                modality: float(np.frombuffer(row[modality], dtype="<f4") @ query)
-                for modality in modalities
-                if row[modality] is not None
-            }
-            if not scores:
-                continue
-            modality = max(scores, key=scores.__getitem__)
-            score = scores[modality]
-            if request.min_score is not None and score < request.min_score:
-                continue
-            video = json.loads(row["video_record"])
-            start, end = row["start_seconds"], row["end_seconds"]
-            candidates.append(
-                SearchHit(
-                    video_id=row["video_id"],
-                    filename=video["filename"],
-                    window=row["ordinal"],
-                    start_seconds=start,
-                    end_seconds=end,
-                    score=round(score, 6),
-                    modality=modality,
-                    thumbnail_url=(
-                        f"/videos/{row['video_id']}/index/thumbnails/{row['ordinal']}"
-                    ),
-                    playback_url=f"/videos/{row['video_id']}/play#t={start:.3f},{end:.3f}",
-                )
-            )
+        # Score each view with one matrix product. Absent views never win.
+        scores = np.full((len(rows), len(modalities)), -np.inf, dtype="<f4")
+        for column, modality in enumerate(modalities):
+            present = [
+                index for index, row in enumerate(rows) if row[modality] is not None
+            ]
+            if present:
+                vectors = np.frombuffer(
+                    b"".join(rows[index][modality] for index in present), dtype="<f4"
+                ).reshape(len(present), -1)
+                scores[present, column] = vectors @ query
+        best = scores.argmax(axis=1)
+        best_scores = scores[np.arange(len(rows)), best].astype(np.float64)
+        minimum = -np.inf if request.min_score is None else request.min_score
+        eligible = np.flatnonzero((best_scores > -np.inf) & (best_scores >= minimum))
+        rounded_scores = np.round(best_scores[eligible], 6)
+
+        filenames: dict[str, str | None] = {}
         matches: list[SearchHit] = []
-        for hit in sorted(candidates, key=lambda item: item.score, reverse=True):
+        # Preserve rounded-score tie order before suppressing overlapping windows.
+        for index in eligible[np.argsort(-rounded_scores, kind="stable")]:
+            score = float(best_scores[index])
+            row = rows[index]
+            video_id = row["video_id"]
+            if video_id not in filenames:
+                filenames[video_id] = json.loads(row["video_record"])["filename"]
+            start, end = row["start_seconds"], row["end_seconds"]
+            hit = SearchHit(
+                video_id=video_id,
+                filename=filenames[video_id],
+                window=row["ordinal"],
+                start_seconds=start,
+                end_seconds=end,
+                score=round(score, 6),
+                modality=modalities[best[index]],
+                thumbnail_url=f"/videos/{video_id}/index/thumbnails/{row['ordinal']}",
+                playback_url=f"/videos/{video_id}/play#t={start:.3f},{end:.3f}",
+            )
             if any(
                 other.video_id == hit.video_id
                 and max(
