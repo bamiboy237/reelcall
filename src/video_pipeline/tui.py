@@ -28,6 +28,7 @@ from textual.screen import ModalScreen, Screen
 from textual.suggester import Suggester
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
+from textual.worker import get_current_worker
 
 from video_pipeline import term
 from video_pipeline.cli import explain, shown
@@ -40,6 +41,7 @@ from video_pipeline.jobs import (
     ProcessingOperation,
     TranscodeOperation,
     database_url,
+    outputs_dir,
 )
 from video_pipeline.search import SearchHit, SearchRequest, SearchStore
 from video_pipeline.storage import VideoRecord, VideoStore
@@ -787,6 +789,7 @@ class Results(View):
         self.thumbnails: list[bytes | None] = []
         self.problem: tuple[str, str] | None = None
         self.searching = True
+        self.generation = 0  # Which search the screen is waiting for.
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="field"):
@@ -810,38 +813,46 @@ class Results(View):
         ][:5]
         self.hits, self.thumbnails, self.problem = [], [], None
         self.searching = True
+        self.generation += 1
         self.update_view()
-        self.search()
+        self.search(self.generation, self.query_text)
 
     @work(thread=True, exclusive=True)
-    def search(self) -> None:
+    def search(self, generation: int, query: str) -> None:
         app = self.pipeline
-        app.call_from_thread(app.working, id(self), "searching")
+        key = id(get_current_worker())
+        app.call_from_thread(app.working, key, "searching")
         try:
             response = app.searches.search(
-                SearchRequest(query=self.query_text, limit=12), app.text_embedder()
+                SearchRequest(query=query, limit=12), app.text_embedder()
             )
             thumbnails = [
                 app.searches.thumbnail(hit.video_id, hit.window)
                 for hit in response.matches
             ]
-            app.call_from_thread(self.show, response.matches, thumbnails, None)
+            app.call_from_thread(
+                self.show, generation, response.matches, thumbnails, None
+            )
         except (OSError, ValueError) as error:
             summary = "Search isn't available right now."
             if isinstance(error, ValueError) and "Reindex" in str(error):
                 summary = (
                     "These videos need indexing again before they can be searched."
                 )
-            app.call_from_thread(self.show, [], [], (summary, explain(error)))
+            problem = (summary, explain(error))
+            app.call_from_thread(self.show, generation, [], [], problem)
         finally:
-            app.call_from_thread(app.done, id(self))
+            app.call_from_thread(app.done, key)
 
     def show(
         self,
+        generation: int,
         hits: list[SearchHit],
         thumbnails: list[bytes | None],
         problem: tuple[str, str] | None,
     ) -> None:
+        if generation != self.generation or not self.is_attached:
+            return  # A newer search replaced this one, or the screen closed.
         self.hits, self.thumbnails, self.problem = hits, thumbnails, problem
         self.searching = False
         self.update_view()
@@ -1074,7 +1085,8 @@ class Activity(ModalScreen[None]):
             options.append(Option(Text("Nothing running.", FAINT), disabled=True))
         fill(self.query_one(".rows", OptionList), options)
 
-        pairs = [("⏎", "open")]
+        option = self.query_one(".rows", OptionList).highlighted_option
+        pairs = [("⏎", "open")] if option is not None and option.id else []
         if self.failure():
             pairs += [("d", "details"), ("y", "copy error")]
         self.query_one(KeyBar).show(app.message(), [*pairs, ("esc", "close")])
@@ -1306,11 +1318,14 @@ class Pipeline(App[None]):
 
     def load(self) -> Snapshot:
         """The one place the app reads stored state."""
+        videos = self.videos.list()[::-1]
+        library = {video.id for video in videos}
         jobs = self.jobs.list() if self.jobs is not None else []
         return Snapshot(
-            videos=self.videos.list()[::-1],
+            videos=videos,
             ready={record.video_id for record in self.searches.indexes()},
-            jobs=jobs,
+            # The job database can hold other libraries' history.
+            jobs=[job for job in jobs if job.video_id in library],
         )
 
     def reload(self) -> None:
@@ -1385,8 +1400,10 @@ class Pipeline(App[None]):
         self.go_offline("Lost the connection to the job service.")
 
     def output(self, job: JobRecord) -> Path:
-        assert self.jobs is not None and job.output is not None
-        return self.jobs.output_path(job.id, job.output.filename)
+        """Where a finished job's file is; known without the job service."""
+        assert job.output is not None
+        directory = outputs_dir(self.videos.database_path)
+        return directory / str(job.id) / job.output.filename
 
     # Work
 
