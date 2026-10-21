@@ -1184,16 +1184,34 @@ yet, `/` points at `i` instead of opening a search that cannot work.
 
 ### Local verification
 
-- A throwaway Textual Pilot script (not committed) drove the preview app:
-  Library → open `kitchen.mp4` → `/` → typed query → submitted. The search
-  request carried `video_ids=[kitchen]` only, the results crumb read
-  "kitchen.mp4 › ⌕ …", and the workspace key bar offered `/ search`.
-- The same run repeated the flow through the Library query and confirmed
-  the global request still carries `video_ids=None`.
+Ran against a real indexed video from the Desktop corpus
+(`anime_sekiro-no-defeat_trailer_IRjuAemfaQE.mp4`, 72 s, 18 windows) and the
+Docker Compose job service with two workers. `/tmp` data dir; no preview
+stubs.
+
+- **Scoped search and play.** Library → workspace → `/` → "armored samurai
+drawing katana from scabbard". The request carried that video's id only.
+The labeled moment (15–18 s) landed in the returned 12–20 s window. Enter
+opened the inline player for the top moment; it advanced to 46.8 s of 0:52
+with no error.
+- **Clip and output.** From the scoped results, `→` opened the moment's
+workspace showing `moment 0:44 – 0:52`. `c` prefilled that range. The real
+worker finished the clip in 4 s, the output appeared under Outputs, and
+opening it played inline at `0:02.1 / 0:08`. `ffprobe` on the output: 8.0 s,
+1280×720 h264 with aac. Escape returned to the workspace with the moment
+still shown.
+- **State on return.** Picking the second result, opening its workspace and
+returning kept the query, the video scope, and the highlighted row; the
+second escape returned to the original workspace with its video intact.
+- **Not-searchable guard.** On an uploaded but unindexed video the `/`
+binding is absent from the key bar and pressing it shows "Not searchable
+yet — press i to make it searchable first" without leaving the workspace.
+- **Global search unchanged.** A Library query still sends
+`video_ids=None`.
 - `dev/preview.py`'s stub now honors `video_ids`, so previewed scoped
   searches filter like the real store.
-- Ruff and `py_compile` pass on `src/video_pipeline/tui.py` and
-  `dev/preview.py`.
+- Ruff, `ruff format --check`, ty, and `py_compile` pass on
+  `src/video_pipeline/tui.py` and `dev/preview.py`.
 
 ## Review loop
 
