@@ -25,6 +25,10 @@ MAX_ATTEMPTS = 3
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
 
 
+def outputs_dir(database_path: Path) -> Path:
+    return database_path.parent / "jobs"
+
+
 def database_url() -> str:
     value = os.environ.get("VIDEO_PIPELINE_DATABASE_URL")
     if not value:
@@ -128,7 +132,7 @@ class BatchJobRequest(BaseModel):
 class JobStore:
     def __init__(self, database_path: Path, conninfo: str) -> None:
         self.database_path = database_path
-        self.outputs_dir = database_path.parent / "jobs"
+        self.outputs_dir = outputs_dir(database_path)
         self.pool = ConnectionPool[Connection[dict[str, Any]]](
             conninfo,
             kwargs={"row_factory": dict_row},

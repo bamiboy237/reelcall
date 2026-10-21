@@ -17,3 +17,16 @@ Planned search lets users find specific moments using everyday language:
 
 Search results will include matching clips, thumbnails, original timestamps,
 and playback links.
+
+## Use
+
+```sh
+docker compose up -d      # job service: processing and indexing
+video-pipeline            # library, search and progress
+video-pipeline -h         # one-shot commands for scripts (add --json)
+```
+
+The app needs `VIDEO_PIPELINE_DATABASE_URL` pointing at the job service's
+database (`postgresql://video_pipeline:…@127.0.0.1:15432/video_pipeline`).
+Without it, the library and search still work; adding work waits for the
+service.

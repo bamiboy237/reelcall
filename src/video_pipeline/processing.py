@@ -144,7 +144,12 @@ def extract_thumbnail(path: Path, thumbnail_path: Path) -> None:
     )
 
 
-def process_video(path: Path, height: int, output_dir: Path) -> ProcessingResult:
+def process_video(
+    path: Path,
+    height: int,
+    output_dir: Path,
+    on_progress: Callable[[float], None] | None = None,
+) -> ProcessingResult:
     if height <= 0 or height % 2:
         raise ValueError("Height must be a positive even number.")
 
@@ -153,6 +158,6 @@ def process_video(path: Path, height: int, output_dir: Path) -> ProcessingResult
     output_dir.mkdir(parents=True)
     video_path = output_dir / "video.mp4"
     thumbnail_path = output_dir / "thumbnail.jpg"
-    transcode_video(source, height, video_path)
+    transcode_video(source, height, video_path, on_progress)
     extract_thumbnail(video_path, thumbnail_path)
     return ProcessingResult(video_path=video_path, thumbnail_path=thumbnail_path)
