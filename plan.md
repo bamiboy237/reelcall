@@ -892,6 +892,34 @@ After the change, a steady-state window spends 7.1 s in the vision tower
 - FFmpeg transcode and clip settings are unchanged. They are not the
   bottleneck in the measured workflows.
 
+### PR review follow-up
+
+- Found and fixed a ranking-equivalence regression. The previous implementation
+  sorted the public six-decimal scores, preserving input order for equal scores.
+  Sorting unrounded values instead could select a different overlapping window.
+  A concrete normalized-vector example changed the result from 0–8 seconds to
+  4–12 seconds even though both displayed 0.5.
+- Keep batched scoring, but apply the minimum-score filter before stable sorting
+  by rounded scores. Compare thresholds as float64 so a Python minimum score is
+  not rounded down to float32 during the vectorized comparison.
+- Compared the previous and updated rankers on all 30 existing query vectors,
+  four search modes, and five thresholds: 600 comparisons returned identical
+  hit identities and ordering. Rounded scores differed by at most 0.000001.
+  Checked close-score ties, threshold boundaries, empty input, and absent views.
+- On the M1, compared two overlapping two-second windows from a real MP4 using
+  the same model with and without feature reuse. Frame pixels, sample times,
+  and audio sample counts matched. Vision tower work fell from eight frames to
+  three, and audio tower calls fell from four to two.
+- The minimum vector cosine across those windows was 1.0 for visual, 0.9999964
+  for audio, and 0.9999997 for combined. These are bounded local checks, not a
+  repeat of the full Xeon timing benchmark above.
+- Ran the real CLI indexing and search workflow on a six-second H.264/AAC
+  video. All three windows indexed successfully, and a title query returned
+  the expected final window. Locked sync, Ruff, ty, and the package build passed.
+- Reviewed the feature hooks against the installed Transformers 5.20.2 forward
+  methods. Docker stayed paused. The queued worker and HTTP startup workflow
+  were not repeated locally, and no automated tests or smoke scripts were added.
+
 ## Review loop
 
 1. Confirm the current slice and its acceptance criteria.

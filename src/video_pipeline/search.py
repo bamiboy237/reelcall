@@ -302,16 +302,16 @@ class SearchStore:
                 ).reshape(len(present), -1)
                 scores[present, column] = vectors @ query
         best = scores.argmax(axis=1)
-        best_scores = scores[np.arange(len(rows)), best]
+        best_scores = scores[np.arange(len(rows)), best].astype(np.float64)
         minimum = -np.inf if request.min_score is None else request.min_score
+        eligible = np.flatnonzero((best_scores > -np.inf) & (best_scores >= minimum))
+        rounded_scores = np.round(best_scores[eligible], 6)
 
         filenames: dict[str, str | None] = {}
         matches: list[SearchHit] = []
-        # Build hits in score order and stop once the limit is reached.
-        for index in np.argsort(-best_scores, kind="stable"):
+        # Preserve rounded-score tie order before suppressing overlapping windows.
+        for index in eligible[np.argsort(-rounded_scores, kind="stable")]:
             score = float(best_scores[index])
-            if score == -np.inf or score < minimum:
-                break
             row = rows[index]
             video_id = row["video_id"]
             if video_id not in filenames:
