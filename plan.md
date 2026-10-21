@@ -1086,6 +1086,92 @@ After the change, a steady-state window spends 7.1 s in the vision tower
   unchanged resubmission, blank input, NaN, infinity, invalid text, and
   out-of-range values. Formatting, lint, types, build, and diff checks passed.
 
+## Inline terminal playback
+
+### Tool decision
+
+Use FFPyPlayer 4.5.3 for decoding, audio output, pause, seeking, and audio-clock
+timing. Reuse the app's colored half-block renderer for video. This does not
+require a terminal graphics protocol or a separate player window.
+
+Compared these alternatives:
+
+- `textual-video` provides a widget, but its repository says it is archived.
+- PyAV handles decoding. Audio output and synchronization need more app code.
+- mpv terminal output takes over the terminal and needs a system installation.
+
+FFPyPlayer has Python 3.12 wheels for macOS and Linux ARM64 and x86. Its source
+is LGPL. Upstream says Linux and Windows wheels include GPL-enabled FFmpeg.
+Check distribution requirements before bundling those binaries in a release.
+
+### Implementation plan
+
+1. Add one playback screen for originals, search moments, and saved outputs.
+   Esc returns to the previous screen. Keep external playback under `o`.
+2. Keep native playback in one local child process. Native callbacks enqueue
+   events; player method calls stay on that process's main thread. Send frames
+   and state to the app through pipes. The app retains only the latest frame
+   and polls at 30 Hz. Honor the engine's frame delay and audio clock.
+3. Scale decoded frames to the screen. Support pause, five-second seeks,
+   restart, mute, and replay. Stop the timer and close the player on exit.
+4. Trim audio and video to the requested range. Capture decoder errors in
+   the existing error sheet rather than writing over the terminal.
+5. Verify real playback, audio, controls, range boundaries, resizing, silent
+   videos, bad files, early exit, and repeated open/close resources.
+   Measure rendering cost and capture terminal frames.
+6. Run locked sync, Ruff, ty, and the package build. Add no automated tests
+   or smoke scripts. Keep this work separate from PR #6.
+
+### Research findings
+
+- On a real MP4, `ss=2` alone returned a frame at 1.084 seconds. Audio and video
+  trim filters moved the first frame to 2.002 seconds for a 2–4 second range.
+- FFPyPlayer's string video-filter form fails under Python 3 in this release.
+  Its documented list form works.
+- Native clock reads before input metadata is ready can crash the library.
+  Playback controls wait for the input to open.
+- The native seek API can stop before its target while paused: requesting
+  five seconds returned a frame at 4.546 seconds. Reopen the decoder with
+  trim filters at the requested position for each seek, keeping pause and
+  mute state. This also gives replay a fresh EOF state.
+- PyAV and FFPyPlayer wheels load different FFmpeg versions. macOS reports
+  duplicate native classes when both load in the same process. Isolating
+  playback removes this conflict and keeps decoder crashes out of the app.
+  The child is a short-lived local player, not a new job-queue service.
+- Rendering Rich segments directly took about 10 ms per frame in a local
+  image comparison, versus 20 ms through Text spans. Share the pixel mapping
+  with thumbnails, but use direct segments for changing video frames.
+
+### Local verification
+
+- Search results, originals, and the saved two-second clip opened inside the
+  terminal with audio. Default playback launched no external player.
+- Pause held the clock steady. Mute, replay, resize, portrait video, and video
+  without audio worked. External playback paused inline audio and exited zero.
+- The 2–4 second range started at frame 2.002 and ended at clock 4.0.
+  Paused seeks to 5, 1, and 4 seconds displayed frames 5.005, 1.001, and 4.004.
+  The last local seek checks took 0.23–0.44 seconds.
+- Missing and invalid files showed error details. Killing the decoder process
+  left the app running. Escape preserved the search selection.
+- Six open/close cycles kept the parent at 14 file descriptors. All children
+  exited zero and all six backend objects were released. Closing before the
+  first frame and quitting the app during playback also closed the child.
+- In the full workflow, 263 frame draws took median 7.0 ms. The maximum was
+  597 ms during captures and other cold work, so this is not a steady-state
+  frame-rate claim. Performance review should measure rendering and IPC apart.
+- The built wheel played real media in an isolated uv environment. Locked
+  sync, Ruff format/lint, ty, source and wheel builds, and diff checks passed.
+- Evidence remains in `outputs/inline-video-research/` and
+  `outputs/inline-video-review/`. The review PostgreSQL container is paused.
+
+### Primary references
+
+- [Player API](https://matham.github.io/ffpyplayer/player.html)
+- [Image API](https://matham.github.io/ffpyplayer/pic.html)
+- [Logging API](https://matham.github.io/ffpyplayer/tools.html)
+- [FFPyPlayer source and licensing](https://github.com/matham/ffpyplayer)
+- [textual-video](https://github.com/fi-res/textual-video)
+
 ## Review loop
 
 1. Confirm the current slice and its acceptance criteria.

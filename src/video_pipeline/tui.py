@@ -16,6 +16,7 @@ from PIL import Image
 from psycopg_pool import PoolTimeout
 from pydantic import TypeAdapter, ValidationError
 from rich.color import Color
+from rich.segment import Segment, Segments
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
@@ -26,6 +27,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.screen import ModalScreen, Screen
 from textual.suggester import Suggester
+from textual.timer import Timer
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 from textual.worker import get_current_worker
@@ -44,6 +46,7 @@ from video_pipeline.jobs import (
     database_url,
     outputs_dir,
 )
+from video_pipeline.playback import Playback
 from video_pipeline.search import SearchHit, SearchRequest, SearchStore
 from video_pipeline.storage import VideoRecord, VideoStore
 
@@ -143,9 +146,12 @@ def progress(job: JobRecord | None, frame: int, cells: int, stage: bool = True) 
     return text
 
 
-def pixels(data: bytes, width: int = 36, rows: int = 10) -> Text:
+def pixel_segments(
+    data: bytes | Image.Image, width: int = 36, rows: int = 10
+) -> list[Segment]:
     """Render an image with half blocks: two pixels per cell."""
-    image = Image.open(BytesIO(data)).convert("RGB")
+    source = Image.open(BytesIO(data)) if isinstance(data, bytes) else data
+    image = source.convert("RGB")
     image.thumbnail((width, rows * 2), Image.Resampling.LANCZOS)
     columns, height = image.size
     raw = image.tobytes()
@@ -154,13 +160,23 @@ def pixels(data: bytes, width: int = 36, rows: int = 10) -> Text:
         offset = (y * columns + x) * 3
         return Color.from_rgb(raw[offset], raw[offset + 1], raw[offset + 2])
 
-    text = Text()
+    segments: list[Segment] = []
     for y in range(0, height, 2):
-        text.append("\n" if y else "")
+        if y:
+            segments.append(Segment.line())
         for x in range(columns):
             bottom = color(x, y + 1) if y + 1 < height else None
-            text.append("▀", Style(color=color(x, y), bgcolor=bottom))
-    return text
+            segments.append(Segment("▀", Style(color=color(x, y), bgcolor=bottom)))
+    return segments
+
+
+def pixels(data: bytes, width: int = 36, rows: int = 10) -> Text:
+    return Text.assemble(
+        *(
+            (segment.text, segment.style) if segment.style is not None else segment.text
+            for segment in pixel_segments(data, width, rows)
+        )
+    )
 
 
 def player(path: Path, start: float = 0, end: float | None = None) -> list[str] | None:
@@ -526,6 +542,148 @@ class Library(View):
             self.pipeline.push_screen(VideoScreen(UUID(key)))
 
 
+class PlayerScreen(View):
+    BINDINGS = [
+        Binding("space", "pause"),
+        Binding("left", "seek(-5)"),
+        Binding("right", "seek(5)"),
+        Binding("home", "restart", show=False),
+        Binding("m", "mute"),
+        Binding("o", "external"),
+        Binding("d", "details", show=False),
+        Binding("escape", "app.pop_screen"),
+    ]
+
+    def __init__(
+        self,
+        path: Path,
+        start: float = 0,
+        end: float | None = None,
+        label: str = "",
+    ) -> None:
+        super().__init__()
+        self.path, self.start, self.end = path, start, end
+        self.label = label or path.name
+        self.playback: Playback | None = None
+        self.frame: Image.Image | None = None
+        self.timer: Timer | None = None
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(classes="header"):
+            yield Static(Text(self.label, STRONG), classes="title")
+        yield Static(Text("Loading…", FAINT), classes="video-frame")
+        yield Static(classes="player-position")
+        yield KeyBar()
+
+    def on_mount(self) -> None:
+        self.playback = Playback(self.path, self.start, self.end)
+        self.timer = self.set_interval(1 / 30, self.tick_frame)
+        self.update_view()
+
+    def on_unmount(self) -> None:
+        if self.timer is not None:
+            self.timer.stop()
+        if self.playback is not None:
+            self.playback.close()
+
+    def keys(self) -> list[tuple[str, str]]:
+        playback = self.playback
+        if playback is None:
+            return [("esc", "back")]
+        if playback.error:
+            return [("d", "details"), ("o", "open outside"), ("esc", "back")]
+        if not playback.ready:
+            return [("esc", "back")]
+        action = "replay" if playback.ended else "play" if playback.paused else "pause"
+        return [
+            ("space", action),
+            ("←/→", "seek 5s"),
+            ("m", "unmute" if playback.muted else "mute"),
+            ("o", "open outside"),
+            ("esc", "back"),
+        ]
+
+    def draw_frame(self) -> None:
+        if self.playback is not None and self.playback.error:
+            return  # The stored frame is stale; keep the error message.
+        if self.frame is not None:
+            picture = self.query_one(".video-frame", Static)
+            width, height = picture.content_size
+            picture.update(
+                Segments(pixel_segments(self.frame, max(1, width), max(1, height)))
+            )
+
+    def tick_frame(self) -> None:
+        playback = self.playback
+        if playback is None:
+            return
+        width, height = self.query_one(".video-frame").content_size
+        playback.resize(max(1, width), max(1, height))
+        frame = playback.poll()
+        if frame is not None:
+            self.frame = frame
+            self.draw_frame()
+        self.update_view()
+
+    def on_resize(self, event: events.Resize) -> None:
+        self.draw_frame()
+        super().on_resize(event)
+
+    def update_view(self) -> None:
+        playback = self.playback
+        if playback is not None:
+            if playback.error:
+                self.frame = None
+                self.query_one(".video-frame", Static).update(
+                    Text("Playback failed.", ERROR)
+                )
+            position = Text(term.timecode(playback.position), TEXT)
+            if playback.end is not None:
+                position.append(f" / {term.timecode(playback.end)}", FAINT)
+            if playback.ended:
+                position.append("   ended", MUTED)
+            elif playback.paused:
+                position.append("   paused", MUTED)
+            if playback.muted:
+                position.append("   muted", MUTED)
+            self.query_one(".player-position", Static).update(position)
+        super().update_view()
+
+    def action_pause(self) -> None:
+        if self.playback is not None:
+            self.playback.toggle_pause()
+            self.update_view()
+
+    def action_seek(self, seconds: float) -> None:
+        if self.playback is not None:
+            self.playback.seek(self.playback.position + seconds)
+
+    def action_restart(self) -> None:
+        if self.playback is not None:
+            self.playback.seek(self.start)
+
+    def action_mute(self) -> None:
+        if self.playback is not None:
+            self.playback.toggle_mute()
+            self.update_view()
+
+    def action_external(self) -> None:
+        playback = self.playback
+        if playback is None or not (playback.ready or playback.error):
+            return
+        if not playback.paused and not playback.ended:
+            playback.toggle_pause()
+        start = playback.start if playback.ended else playback.position
+        self.pipeline.open_external(self.path, start, playback.end, self.label)
+        self.update_view()
+
+    def action_details(self) -> None:
+        if self.playback is not None and self.playback.error:
+            self.pipeline.push_screen(
+                ErrorSheet("Playback failed.", self.playback.diagnostics)
+            )
+
+
 class VideoScreen(View):
     BINDINGS = [
         Binding("p", "play"),
@@ -719,11 +877,16 @@ class VideoScreen(View):
             return
         path = self.pipeline.videos.original_path(self.video_id)
         moment = self.moment
-        self.pipeline.play(path, moment.start_seconds, moment.end_seconds, span(moment))
+        self.pipeline.play(
+            path,
+            moment.start_seconds,
+            moment.end_seconds,
+            self.video.filename or "untitled",
+        )
 
     def action_play_video(self) -> None:
         path = self.pipeline.videos.original_path(self.video_id)
-        self.pipeline.play(path, label=self.video.filename or "video")
+        self.pipeline.play(path, label=self.video.filename or "untitled")
 
     def action_index(self) -> None:
         if self.pipeline.snapshot.state(self.video)[0] in ("uploaded", "failed"):
@@ -971,7 +1134,9 @@ class Results(View):
             return
         hit = self.hits[index]
         path = self.pipeline.videos.original_path(hit.video_id)
-        self.pipeline.play(path, hit.start_seconds, hit.end_seconds, span(hit))
+        self.pipeline.play(
+            path, hit.start_seconds, hit.end_seconds, hit.filename or "untitled"
+        )
 
     def action_open_moment(self) -> None:
         choice = self.selected()
@@ -1309,6 +1474,11 @@ class Pipeline(App[None]):
     .body .rows { width: 1fr; }
     .body .preview { margin: 0 0 0 2; }
     Results.-narrow .body .preview { display: none; }
+    .video-frame {
+        width: 1fr; height: 1fr;
+        content-align: center middle; text-align: center;
+    }
+    .player-position { height: 1; margin: 1 0 0 0; }
 
     ModalScreen { background: #000000 55%; align: center middle; padding: 0; }
     .sheet {
@@ -1536,6 +1706,11 @@ class Pipeline(App[None]):
             self.call_from_thread(self.done, id(embedder))
 
     def play(
+        self, path: Path, start: float = 0, end: float | None = None, label: str = ""
+    ) -> None:
+        self.push_screen(PlayerScreen(path, start, end, label))
+
+    def open_external(
         self, path: Path, start: float = 0, end: float | None = None, label: str = ""
     ) -> None:
         command = player(path, start, end)
