@@ -468,7 +468,7 @@ button {
 
 .progress__fill.is-running {
   transform: scaleX(1);
-  transition: transform 1700ms linear;
+  transition: transform 2600ms linear;
 }
 
 .results {

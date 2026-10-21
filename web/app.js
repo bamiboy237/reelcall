@@ -116,17 +116,17 @@ if (demo) {
   function showIndex() {
     setScene("index");
     later(() => progress?.classList.add("is-running"), 60);
-    later(showSearch, 2050);
+    later(showSearch, 3000);
   }
 
   function showSearch() {
     setScene("search");
     later(() => {
-      typeText(queryEl, QUERY_TEXT, 30, () => {
-        later(() => results?.classList.add("is-visible"), 250);
-        later(showPlay, 1600);
+      typeText(queryEl, QUERY_TEXT, 50, () => {
+        later(() => results?.classList.add("is-visible"), 400);
+        later(showPlay, 2400);
       });
-    }, 300);
+    }, 450);
   }
 
   function showPlay() {
@@ -135,7 +135,7 @@ if (demo) {
       try { player.currentTime = 0; } catch { /* metadata not loaded yet */ }
       player.play()?.catch(() => {});
     }
-    later(() => { if (inView) startCycle(); }, 6400);
+    later(() => { if (inView) startCycle(); }, 8500);
   }
 
   function startCycle() {
@@ -148,7 +148,7 @@ if (demo) {
     results?.classList.remove("is-visible");
     progress?.classList.remove("is-running");
     player?.pause();
-    later(guard(() => typeText(pathEl, PATH_TEXT, 34, guard(() => later(guard(showIndex), 420)))), 350);
+    later(guard(() => typeText(pathEl, PATH_TEXT, 55, guard(() => later(guard(showIndex), 600)))), 500);
   }
 
   resultButton?.addEventListener("click", () => {
