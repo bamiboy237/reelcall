@@ -1073,6 +1073,19 @@ After the change, a steady-state window spends 7.1 s in the vision tower
 - Evidence is under `outputs/search-followup-20261021/`. No automated tests,
   smoke scripts, model changes, or ranking defaults were added.
 
+### Claude review follow-up
+
+- Claude Sonnet 5.5 reviewed the PR and found three low-priority issues.
+- Validate the filter value independently of the query, using the existing
+  `SearchRequest.min_score` annotation and constraints. An oversized query
+  no longer produces a misleading score-validation message.
+- The shared input dialog says "apply" instead of "start." Its score prefill
+  preserves the full float value, so accepting it unchanged does not round
+  the score or rerun the search.
+- Verified the dialog with a 2001-character query, the score 0.123456789,
+  unchanged resubmission, blank input, NaN, infinity, invalid text, and
+  out-of-range values. Formatting, lint, types, build, and diff checks passed.
+
 ## Review loop
 
 1. Confirm the current slice and its acceptance criteria.

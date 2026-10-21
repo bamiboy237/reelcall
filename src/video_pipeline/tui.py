@@ -14,7 +14,7 @@ from uuid import UUID
 import psycopg
 from PIL import Image
 from psycopg_pool import PoolTimeout
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from rich.color import Color
 from rich.style import Style
 from rich.table import Table
@@ -75,6 +75,7 @@ SECRETS = (
 )
 START_SERVICE = "docker compose up -d"
 NO_PREVIEW = "No preview."
+MIN_SCORE = TypeAdapter(SearchRequest.model_fields["min_score"].rebuild_annotation())
 
 
 def redact(text: str) -> str:
@@ -993,20 +994,19 @@ class Results(View):
             if value is None:
                 return
             try:
-                request = SearchRequest(
-                    query=self.query_text,
-                    min_score=float(value) if value.strip() else None,
+                score = MIN_SCORE.validate_python(
+                    float(value) if value.strip() else None
                 )
             except ValueError:
                 self.pipeline.notice(
                     Text("Enter a score from -1 to 1, or leave it blank.", ERROR), 4
                 )
                 return
-            if request.min_score != self.min_score:
-                self.min_score = request.min_score
+            if score != self.min_score:
+                self.min_score = score
                 self.run_search()
 
-        value = "" if self.min_score is None else f"{self.min_score:g}"
+        value = "" if self.min_score is None else repr(self.min_score)
         self.pipeline.push_screen(
             Ask("Minimum score", "-1 to 1; blank shows all", value),
             chosen,
@@ -1225,7 +1225,7 @@ class Ask(ModalScreen[str | None]):
             yield Static(Text(self.heading, STRONG), classes="title")
             with Horizontal(classes="field"):
                 yield Input(self.value, placeholder=self.placeholder, compact=True)
-            yield Static(keys([("⏎", "start"), ("esc", "cancel")]), classes="hint")
+            yield Static(keys([("⏎", "apply"), ("esc", "cancel")]), classes="hint")
 
     @on(Input.Submitted)
     def submitted(self, event: Input.Submitted) -> None:
