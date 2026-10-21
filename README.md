@@ -17,3 +17,10 @@ Planned search lets users find specific moments using everyday language:
 
 Search results will include matching clips, thumbnails, original timestamps,
 and playback links.
+
+## Use
+
+```sh
+video-pipeline            # interactive: type to search, / for commands
+video-pipeline -h         # one-shot commands for scripts (add --json)
+```

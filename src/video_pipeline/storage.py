@@ -83,3 +83,9 @@ class VideoStore:
         if row is None:
             return None
         return VideoRecord.model_validate_json(row[0])
+
+    def list(self) -> list[VideoRecord]:
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            rows = connection.execute("SELECT record FROM videos").fetchall()
+        videos = [VideoRecord.model_validate_json(row[0]) for row in rows]
+        return sorted(videos, key=lambda video: video.created_at)
