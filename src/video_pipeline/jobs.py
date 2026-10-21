@@ -15,8 +15,12 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from video_pipeline.search import IndexSettings
+
 EDIT_TASK = "video_pipeline.edit"
 EDIT_QUEUE = "video"
+INDEX_TASK = "video_pipeline.index"
+INDEX_QUEUE = "search"
 MAX_ATTEMPTS = 3
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
 
@@ -61,14 +65,25 @@ class ClipOperation(BaseModel):
             raise ValueError("Clip end must not exceed the video duration.")
 
 
+class IndexOperation(IndexSettings):
+    type: Literal["index"]
+
+
 ProcessingOperation = Annotated[
-    TranscodeOperation | ThumbnailOperation | ClipOperation, Field(discriminator="type")
+    TranscodeOperation | ThumbnailOperation | ClipOperation | IndexOperation,
+    Field(discriminator="type"),
 ]
 
 
 class JobProgress(BaseModel):
     stage: Literal[
-        "queued", "inspecting", "transcoding", "thumbnail", "clipping", "completed"
+        "queued",
+        "inspecting",
+        "transcoding",
+        "thumbnail",
+        "clipping",
+        "indexing",
+        "completed",
     ] = "queued"
     processed_seconds: float | None = None
     duration_seconds: float | None = None
@@ -182,10 +197,22 @@ class JobStore:
             for item in submissions
         ]
         with self.pool.connection() as connection:
-            payloads: list[JSONDict] = [{"job_id": str(job.id)} for job in records]
-            task_ids = self.queue.configure_task(
-                EDIT_TASK, queue=EDIT_QUEUE, connection=connection
-            ).batch_defer(*payloads)
+            task_ids = []
+            for task_name, queue, is_index in (
+                (EDIT_TASK, EDIT_QUEUE, False),
+                (INDEX_TASK, INDEX_QUEUE, True),
+            ):
+                payloads: list[JSONDict] = [
+                    {"job_id": str(job.id)}
+                    for job in records
+                    if isinstance(job.operation, IndexOperation) == is_index
+                ]
+                if payloads:
+                    task_ids.extend(
+                        self.queue.configure_task(
+                            task_name, queue=queue, connection=connection
+                        ).batch_defer(*payloads)
+                    )
             task_rows = connection.execute(
                 """
                 SELECT id, args->>'job_id' AS job_id
