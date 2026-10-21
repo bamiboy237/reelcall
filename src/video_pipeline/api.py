@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from math import isfinite
 from pathlib import Path
+from threading import Thread
 from typing import Any, Literal
 from uuid import UUID
 
@@ -53,6 +54,9 @@ def create_app(data_dir: Path, device: str | None = None) -> FastAPI:
         jobs.open()
         try:
             jobs.require_schema()
+            # Load the query model while serving other routes, so the first
+            # search does not pay for it. Early searches wait for this load.
+            Thread(target=embedder.load, daemon=True).start()
             yield
         finally:
             jobs.close()
