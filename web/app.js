@@ -51,7 +51,6 @@ const demo = document.querySelector("[data-demo]");
 
 if (demo) {
   const scenes = demo.querySelectorAll("[data-scene]");
-  const label = demo.querySelector("[data-demo-label]");
   const keyEls = demo.querySelectorAll("[data-demo-keys] .key");
   const pathEl = demo.querySelector("[data-type-path]");
   const queryEl = demo.querySelector("[data-type-query]");
@@ -62,11 +61,11 @@ if (demo) {
 
   const PATH_TEXT = "~/Videos/witch-hat.mp4";
   const QUERY_TEXT = "the girl in a black witch hat";
-  const PHASES = {
-    add: { label: "Add video", keys: [["⏎", "add"], ["esc", "cancel"]] },
-    index: { label: "Indexing", keys: [["…", "indexing"], ["esc", "cancel"]] },
-    search: { label: "Search", keys: [["⏎", "search"], ["esc", "clear"]] },
-    play: { label: "Playing clip", keys: [["space", "pause"], ["esc", "back"]] },
+  const SCENE_KEYS = {
+    add: [["⏎", "add"], ["esc", "cancel"]],
+    index: [["…", "indexing"], ["esc", "cancel"]],
+    search: [["⏎", "search"], ["esc", "clear"]],
+    play: [["space", "pause"], ["esc", "back"]],
   };
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -90,11 +89,10 @@ if (demo) {
       scene.classList.toggle("is-active", active);
       scene.setAttribute("aria-hidden", String(!active));
     }
-    const phase = PHASES[name];
-    if (label && phase) label.textContent = phase.label;
-    if (phase) {
+    const keys = SCENE_KEYS[name];
+    if (keys) {
       keyEls.forEach((keyEl, i) => {
-        const [kbd, text] = phase.keys[i] ?? ["", ""];
+        const [kbd, text] = keys[i] ?? ["", ""];
         const kbdEl = keyEl.querySelector("kbd");
         const textEl = keyEl.querySelector("span");
         if (kbdEl) kbdEl.textContent = kbd;

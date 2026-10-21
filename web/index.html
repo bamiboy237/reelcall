@@ -47,13 +47,12 @@
             <span class="terminal__dot"></span>
           </div>
           <div class="terminal__screen">
-            <p class="terminal__label" data-demo-label>Add video</p>
             <div class="terminal__viewport">
               <section class="scene is-active" data-scene="add">
                 <div class="field">
                   <span data-type-path></span><span class="terminal__caret" aria-hidden="true"></span>
                 </div>
-                <p class="scene__note">MP4, MOV, MKV, WebM — the original file is kept as-is.</p>
+                <p class="scene__note">MP4 · MOV · MKV · WebM</p>
               </section>
               <section class="scene" data-scene="index" aria-hidden="true">
                 <ul class="status">
@@ -70,18 +69,15 @@
                 <div class="results" data-results>
                   <button class="result" type="button" data-result>
                     <img class="result__thumb" src="assets/demo-poster.jpg" alt="" width="112" height="63" />
-                    <span class="result__meta">
-                      <span class="result__title">witch-hat.mp4</span>
-                      <span class="result__sub">“the girl in a black witch hat”</span>
-                    </span>
+                    <span class="result__title">witch-hat.mp4</span>
                     <span class="result__time">0:24</span>
                   </button>
-                  <p class="results__count">1 strong match in this video</p>
+                  <p class="results__count">1 result</p>
                 </div>
               </section>
               <section class="scene" data-scene="play" aria-hidden="true">
                 <video class="player" data-player src="assets/demo-clip.mp4" poster="assets/demo-poster.jpg" muted playsinline preload="metadata" controls></video>
-                <p class="player__caption"><span class="player__state">▶ Playing match</span><span>witch-hat.mp4 · 0:24–0:29</span></p>
+                <p class="player__caption">witch-hat.mp4 · 0:24–0:29</p>
               </section>
             </div>
             <div class="terminal__keys" data-demo-keys>
@@ -100,19 +96,19 @@
       <div class="faq__list">
         <div class="faq__row">
           <p class="faq__question">What do I need to install?</p>
-          <p class="faq__answer">Simply install the package and it guides you through the set up steps and what’s needed</p>
+          <p class="faq__answer">Install the package and FFmpeg. Docker runs the job service.</p>
         </div>
         <div class="faq__row">
           <p class="faq__question">Does it need a GPU?</p>
-          <p class="faq__answer">No, we run the EmbeddingGemma2 model (video variant) which runs fine on most modern CPUs</p>
+          <p class="faq__answer">No. EmbeddingGemma 2 runs on the CPU.</p>
         </div>
         <div class="faq__row">
           <p class="faq__question">How does search work?</p>
-          <p class="faq__answer">Each video is cut into n-second windows that overlap by n seconds. Then the frames and sounds are embedded. When you run query, the model embeds your query and finds frames or sounds that closely match.</p>
+          <p class="faq__answer">Reelcall indexes overlapping video sections and compares your query with their frames and audio.</p>
         </div>
         <div class="faq__row">
           <p class="faq__question">Where are my videos kept?</p>
-          <p class="faq__answer">You’ll decide an output folder during setup.</p>
+          <p class="faq__answer">In the data folder you choose.</p>
         </div>
         <div class="faq__row">
           <p class="faq__question">Which formats work?</p>

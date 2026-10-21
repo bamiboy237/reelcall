@@ -674,7 +674,7 @@ class PlayerScreen(View):
         if not playback.paused and not playback.ended:
             playback.toggle_pause()
         start = playback.start if playback.ended else playback.position
-        self.pipeline.open_external(self.path, start, playback.end, self.label)
+        self.pipeline.open_external(self.path, start, playback.end)
         self.update_view()
 
     def action_details(self) -> None:
@@ -1750,7 +1750,7 @@ class Pipeline(App[None]):
         self.push_screen(PlayerScreen(path, start, end, label))
 
     def open_external(
-        self, path: Path, start: float = 0, end: float | None = None, label: str = ""
+        self, path: Path, start: float = 0, end: float | None = None
     ) -> None:
         command = player(path, start, end)
         if command is None:
@@ -1763,7 +1763,6 @@ class Pipeline(App[None]):
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
-        self.notice(Text.assemble(("playing ", MUTED), (label, TEXT)))
 
     def copy_error(self, diagnostics: str) -> None:
         self.copy_to_clipboard(redact(diagnostics))
