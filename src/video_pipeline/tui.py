@@ -976,9 +976,7 @@ class Results(View):
         self.query_text = query
         # Set when the search is scoped to one video's workspace.
         self.video_id = video.id if video is not None else None
-        self.scope_name = (
-            (video.filename or "untitled") if video is not None else None
-        )
+        self.scope_name = (video.filename or "untitled") if video is not None else None
         self.min_score: float | None = None
         self.names: list[VideoRecord] = []
         self.hits: list[SearchHit] = []
