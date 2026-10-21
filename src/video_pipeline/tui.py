@@ -3,6 +3,7 @@
 import shlex
 import shutil
 import subprocess
+import time
 from io import BytesIO
 from pathlib import Path
 
@@ -10,13 +11,14 @@ from PIL import Image
 from rich.color import Color
 from rich.style import Style
 from rich.text import Text
-from textual import on, work
+from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.suggester import Suggester
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
+from textual.worker import get_current_worker
 
 from video_pipeline import term
 from video_pipeline.cli import explain, shown
@@ -267,6 +269,7 @@ class Pipeline(App[None]):
     }
     .results .preview { width: 40; height: auto; padding: 0 0 0 3; }
     .results.-stale { opacity: 45%; }
+    Screen.-narrow .results .preview { display: none; }
     .results.-stale .preview { display: none; }
     .results.-stale Moments > .option-list--option-highlighted { background: #0b0b0b; }
     #menu {
@@ -309,6 +312,9 @@ class Pipeline(App[None]):
         self.active: Results | None = None
         self.busy: dict[int, str] = {}
         self.frame = 0
+        self.flash: tuple[Text, float] | None = None
+        self.history: list[str] = []
+        self.recall: int | None = None
         self._text_embedder: Embedder | None = None
         self._media_embedder: Embedder | None = None
 
@@ -334,7 +340,7 @@ class Pipeline(App[None]):
         self.library = self.videos.list()
         self.indexed = {record.video_id for record in self.searches.indexes()}
         self.query_one(Input).focus()
-        self.set_interval(0.09, self.tick)
+        self.set_interval(0.05, self.tick)
         self.refresh_status()
 
     def follow(self) -> None:
@@ -373,10 +379,20 @@ class Pipeline(App[None]):
 
     # Status line
 
+    def on_resize(self, event: events.Resize) -> None:
+        self.screen.set_class(event.size.width < 100, "-narrow")
+
     def tick(self) -> None:
         if self.busy:
             self.frame += 1
             self.refresh_status()
+        elif self.flash is not None and self.flash[1] < time.monotonic():
+            self.flash = None
+            self.refresh_status()
+
+    def notice(self, text: Text, seconds: float = 1.6) -> None:
+        self.flash = (text, time.monotonic() + seconds)
+        self.refresh_status()
 
     def refresh_status(self) -> None:
         if not self.query("#state"):
@@ -384,8 +400,13 @@ class Pipeline(App[None]):
         state = Text()
         if self.busy:
             label = next(reversed(self.busy.values()))
-            for char, shade in term.shimmer(label, self.frame):
-                state.append(char, Style(color=Color.from_ansi(shade)))
+            if self.animation_level == "none":
+                state.append(label, MUTED)
+            else:
+                for char, shade in term.shimmer(label, self.frame):
+                    state.append(char, Style(color=Color.from_ansi(shade)))
+        elif self.flash is not None:
+            state = self.flash[0]
         else:
             state.append(f"{len(self.library)} videos", MUTED)
             state.append(" · ", FAINT)
@@ -438,6 +459,9 @@ class Pipeline(App[None]):
                 value = option.id
         event.input.clear()
         menu.remove_class("-open")
+        if value:
+            self.history.append(value)
+        self.recall = None
         if not value:
             if self.active is not None and self.active.selected is not None:
                 self.play(self.active.selected)
@@ -454,6 +478,14 @@ class Pipeline(App[None]):
             menu.highlighted = max(0, min(menu.option_count - 1, current + delta))
         elif self.active is not None:
             self.active.move(delta)
+        elif self.history:
+            field = self.query_one(Input)
+            last = len(self.history)
+            self.recall = max(
+                0, min(last, (last if self.recall is None else self.recall) + delta)
+            )
+            field.value = self.history[self.recall] if self.recall < last else ""
+            field.cursor_position = len(field.value)
 
     def action_complete(self) -> None:
         field = self.query_one(Input)
@@ -590,6 +622,8 @@ class Pipeline(App[None]):
                 self.searches.thumbnail(hit.video_id, hit.window)
                 for hit in response.matches
             ]
+            if get_current_worker().is_cancelled:
+                return  # A newer search took over.
             self.call_from_thread(self.show_results, body, response.matches, thumbnails)
         except Exception as error:
             self.call_from_thread(self.fail, body, error)
@@ -773,15 +807,20 @@ class Pipeline(App[None]):
             self.videos.original_path(hit.video_id), hit.start_seconds, hit.end_seconds
         )
         if command is None:
-            self.notify("install mpv or ffplay to play moments", severity="warning")
+            self.notice(Text("install mpv or ffplay to play", ERROR), 3)
             return
-        subprocess.Popen(
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        try:
+            subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError as error:
+            self.notice(Text(explain(error), ERROR), 3)
+            return
+        self.notice(Text.assemble(("playing ", MUTED), (span(hit), TEXT)))
 
 
 def run(data_dir: Path, device: str | None = None) -> None:

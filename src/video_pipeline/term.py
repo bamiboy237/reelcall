@@ -243,7 +243,7 @@ class Activity(Live):
         while not self._stop.is_set():
             self.show(self._render(frame_index))
             frame_index += 1
-            self._stop.wait(0.09)
+            self._stop.wait(0.05)
 
     def __enter__(self) -> "Activity":
         if self.enabled:
