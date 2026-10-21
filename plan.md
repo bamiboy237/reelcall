@@ -525,12 +525,12 @@ changes therefore do not invalidate the dependency-installation layer.
 ## Search implementation
 
 Status: both implementation batches are coded. The local model calls and the
-focused service workflow below are verified. The full five-video, 30-query
-quality comparison is not complete. Publication for review does not wait for
-that long-running check. No completed model work needs to run again.
+focused service workflow below are verified. All five corpus indexes completed.
+The first full 30-query quality comparison is complete, using those existing
+indexes without repeating video inference. Results and limits are below.
 
-The user authorized a feature-branch push and a PR with an `@droid review`
-request. The user did not authorize a merge.
+The user authorized publication and Droid review, then authorized addressing
+the PR comments and merging as needed.
 
 ### Scope
 
@@ -577,6 +577,11 @@ Store visual-only, audio-only, and combined vectors separately. This supports
 comparison and explicit search modes. A source without audio has only a
 visual view. Do not invent audio or silently switch to another model.
 
+A successful audio decode with no samples means that view is absent for the
+window. A real decoder error still fails the operation. Skip frameless windows
+before video begins or within a gap. Stop when the video decoder reaches its end.
+Audio-only time outside the video frames is not indexed.
+
 These bounded windows fit the model's shared 8,192-token context. They are
 initial retrieval intervals, not exact event boundaries. Brief events can
 produce low temporal overlap even when the returned window contains the event.
@@ -592,6 +597,12 @@ leaves the last complete index available. A per-video file lock prevents two
 workers from publishing competing indexes for the same source.
 Reuse an existing index only when its source hash, model profile, and window
 settings match.
+
+VideoStore owns the database path. SearchStore receives that path rather than
+constructing another filename. Scoped searches bind video IDs in the SQL query,
+so unrelated vectors are not loaded. Keep actual sampled frame timestamps as
+inspection data. These identify the precise model inputs and are not ranking
+features.
 
 The `all` search mode uses each window's highest visual, audio, or combined
 score. Explicit modes expose each view separately. Suppress matches on the
@@ -723,11 +734,55 @@ requires the existing database setup and the new Compose `search-worker`.
   Docker image builds and the queued workflow also passed during implementation.
 - Added no automated tests or smoke scripts.
 
-### Limits at publication
+### Review follow-up
 
-- Two of the five full corpus indexes are complete. The remaining local
-  indexing continues from existing stored video IDs. The 30-query comparison
-  is not yet available. Do not treat the PR as proof of complete search quality.
+- Kept container-relative timestamps after checking an MP4 whose video starts at
+  two seconds while audio and the container start at zero. Reading the window
+  at two seconds matched FFmpeg's independently decoded image exactly.
+  Using the video stream's start as zero would remove the real A/V offset.
+- Indexed clearly synthetic short-audio Matroska and delayed, short-video MP4
+  files through the real CLI and Gemma. The delayed video skipped leading
+  frameless windows and stopped after its final frames. Both indexes completed.
+  On this FFmpeg version, `apad` supplied silence after the short audio track.
+  Successful empty audio output is also accepted as an absent view.
+- Removed the extra model-load call from runtime reporting. Lazy loading now
+  occurs only on the encoding path, under its existing lock.
+- Checked a scoped read against the existing 162-window corpus. It returned
+  only the requested video's 41 rows. SQLite's query plan used the video-ID
+  index. An empty ID list returned no rows.
+- Evaluation on a new data folder now initializes both stores and exits with a
+  normal missing-index error instead of a SQLite traceback.
+- Retained frame timestamps because they were used to compare the 59 previously
+  indexed windows with fresh decoding and to inspect the delayed-stream case.
+- Retained torchvision because the installed Gemma4ImageProcessor inherits
+  Transformers' TorchvisionBackend. The dependency is required by that SDK path,
+  even though application code does not import it directly.
+- Docker remains paused. These follow-up checks used the local CLI and database;
+  the queued HTTP workflow was not repeated after the follow-up.
+
+### First full quality comparison
+
+Compared the user's 30 reference moments across all five videos and 162 saved
+windows. The command encoded the text queries once, then reused those query
+vectors across the four search modes. No video inference was repeated.
+
+| Mode | Correct video first | Overlapping moment first | Overlapping moment in top five | Mean first-result interval IoU |
+| --- | --- | --- | --- | --- |
+| visual | 25/30 | 16/30 | 21/30 | 0.1791 |
+| audio | 16/30 | 11/30 | 15/30 | 0.1699 |
+| combined | 28/30 | 19/30 | 26/30 | 0.2678 |
+| all (default) | 29/30 | 21/30 | 25/30 | 0.2982 |
+
+Only 8/30 default-mode first results reached interval IoU 0.5. Correct-video
+selection is stronger than precise moment localization. Default-mode first
+results overlapped 9/11 speech moments, 8/11 visual moments, and 4/8 sound moments.
+This small, user-reviewed local corpus is a first baseline, not a production
+accuracy claim. The detailed report remains in ignored local outputs.
+
+### Current limits
+
+- The complete comparison above demonstrates limited search quality. Improving
+  sound retrieval and exact event boundaries remains follow-up work.
 - No cloud GPU was provisioned. No media or source code was sent to a cloud
   inference provider.
 - Search returns sampled time windows, not exact event boundaries.

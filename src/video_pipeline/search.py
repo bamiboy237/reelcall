@@ -104,9 +104,9 @@ class SearchResponse(BaseModel):
 
 
 class SearchStore:
-    def __init__(self, data_dir: Path) -> None:
-        self.data_dir = data_dir.expanduser().resolve()
-        self.database_path = self.data_dir / "videos.sqlite3"
+    def __init__(self, database_path: Path) -> None:
+        self.database_path = database_path
+        self.data_dir = database_path.parent
 
     def initialize(self) -> None:
         with closing(sqlite3.connect(self.database_path)) as connection, connection:
@@ -194,32 +194,37 @@ class SearchStore:
                 if end < duration and duration - next_start < 1 / FRAME_RATE:
                     end = duration
                 media = read_window(path, start, end, bool(video.audio_streams))
-                vectors = embedder.window(media)
-                thumbnail = io.BytesIO()
-                media.frames[len(media.frames) // 2].save(
-                    thumbnail, format="JPEG", quality=80
-                )
-                rows.append(
-                    (
-                        str(video.id),
-                        len(rows),
-                        start,
-                        end,
-                        json.dumps(media.frame_seconds),
-                        vectors["visual"].tobytes(),
-                        vectors["audio"].tobytes() if "audio" in vectors else None,
-                        vectors["combined"].tobytes()
-                        if "combined" in vectors
-                        else None,
-                        thumbnail.getvalue(),
+                if not media.frames and media.video_ended:
+                    break
+                if media.frames:
+                    vectors = embedder.window(media)
+                    thumbnail = io.BytesIO()
+                    media.frames[len(media.frames) // 2].save(
+                        thumbnail, format="JPEG", quality=80
                     )
-                )
+                    rows.append(
+                        (
+                            str(video.id),
+                            len(rows),
+                            start,
+                            end,
+                            json.dumps(media.frame_seconds),
+                            vectors["visual"].tobytes(),
+                            vectors["audio"].tobytes() if "audio" in vectors else None,
+                            vectors["combined"].tobytes()
+                            if "combined" in vectors
+                            else None,
+                            thumbnail.getvalue(),
+                        )
+                    )
                 if on_progress is not None:
                     on_progress(end)
                 if end == duration:
                     break
                 start = round(next_start, 6)
 
+            if not rows:
+                raise ValueError("No video frames available for indexing.")
             record = IndexRecord(
                 video_id=video.id,
                 indexed_at=datetime.now(UTC),
@@ -246,22 +251,22 @@ class SearchStore:
             return record
 
     def load_windows(self, video_ids: list[UUID] | None = None) -> list[sqlite3.Row]:
+        query = """
+            SELECT w.video_id, w.ordinal, w.start_seconds, w.end_seconds,
+                w.visual, w.audio, w.combined, i.record AS index_record,
+                v.record AS video_record
+            FROM search_windows w
+            JOIN search_indexes i ON i.video_id = w.video_id
+            JOIN videos v ON v.id = w.video_id
+        """
+        parameters = ()
+        if video_ids is not None:
+            query += " WHERE w.video_id IN (SELECT value FROM json_each(?))"
+            parameters = (json.dumps([str(video_id) for video_id in video_ids]),)
+        query += " ORDER BY w.video_id, w.ordinal"
         with closing(sqlite3.connect(self.database_path)) as connection:
             connection.row_factory = sqlite3.Row
-            rows = connection.execute(
-                """
-                SELECT w.video_id, w.ordinal, w.start_seconds, w.end_seconds,
-                    w.visual, w.audio, w.combined, i.record AS index_record,
-                    v.record AS video_record
-                FROM search_windows w
-                JOIN search_indexes i ON i.video_id = w.video_id
-                JOIN videos v ON v.id = w.video_id
-                ORDER BY w.video_id, w.ordinal
-                """
-            ).fetchall()
-        if video_ids is not None:
-            ids = {str(video_id) for video_id in video_ids}
-            rows = [row for row in rows if row["video_id"] in ids]
+            rows = connection.execute(query, parameters).fetchall()
         indexes = {row["video_id"]: row["index_record"] for row in rows}
         if any(json.loads(record)["profile"] != PROFILE for record in indexes.values()):
             raise ValueError("Search index settings have changed. Reindex the videos.")

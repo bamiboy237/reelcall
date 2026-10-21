@@ -165,7 +165,7 @@ def main() -> None:
             )
             videos = VideoStore(args.data_dir)
             videos.initialize()
-            search_store = SearchStore(args.data_dir)
+            search_store = SearchStore(videos.database_path)
             search_store.initialize()
             embedder = Embedder(args.device)
             records = []
@@ -191,7 +191,7 @@ def main() -> None:
         elif args.command == "search":
             videos = VideoStore(args.data_dir)
             videos.initialize()
-            search_store = SearchStore(args.data_dir)
+            search_store = SearchStore(videos.database_path)
             search_store.initialize()
             result = search_store.search(
                 SearchRequest(
@@ -205,7 +205,10 @@ def main() -> None:
             )
             print(result.model_dump_json(indent=2))
         elif args.command == "evaluate-search":
-            search_store = SearchStore(args.data_dir)
+            videos = VideoStore(args.data_dir)
+            videos.initialize()
+            search_store = SearchStore(videos.database_path)
+            search_store.initialize()
             report = evaluate_search(
                 args.references, search_store, Embedder(args.device, text_only=True)
             )

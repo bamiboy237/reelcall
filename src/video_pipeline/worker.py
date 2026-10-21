@@ -293,7 +293,7 @@ def run_worker(
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     videos = VideoStore(data_dir)
     videos.initialize()
-    search = SearchStore(data_dir)
+    search = SearchStore(videos.database_path)
     search.initialize()
     jobs = JobStore(videos.database_path, database_url())
     jobs.open()

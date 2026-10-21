@@ -25,13 +25,16 @@ class MediaWindow:
     frames: list[Image.Image]
     frame_seconds: list[float]
     audio: np.ndarray | None
+    video_ended: bool = False
 
 
 def read_window(path: Path, start: float, end: float, has_audio: bool) -> MediaWindow:
     frames = []
     timestamps = []
+    video_ended = False
     with av.open(str(path)) as container:
         stream = container.streams.video[0]
+        # Match FFmpeg's file-relative seek clock, including stream offsets.
         origin = float(container.start_time or 0) / av.time_base
         container.seek(int((origin + start) / stream.time_base), stream=stream)
         next_sample = start
@@ -50,9 +53,11 @@ def read_window(path: Path, start: float, end: float, has_audio: bool) -> MediaW
             next_sample = (
                 start + (floor((seconds - start) * FRAME_RATE) + 1) / FRAME_RATE
             )
+        else:
+            video_ended = True
 
     if not frames:
-        raise ValueError(f"No video frames in interval {start:.3f}–{end:.3f}.")
+        return MediaWindow(frames, timestamps, None, video_ended)
 
     audio = None
     if has_audio:
@@ -88,10 +93,9 @@ def read_window(path: Path, start: float, end: float, has_audio: bool) -> MediaW
                 result.args,
                 stderr=result.stderr.decode("utf-8", errors="replace"),
             )
-        audio = np.frombuffer(result.stdout, dtype="<f4").copy()
-        if not audio.size:
-            raise ValueError(f"No audio decoded in interval {start:.3f}–{end:.3f}.")
-    return MediaWindow(frames, timestamps, audio)
+        if result.stdout:
+            audio = np.frombuffer(result.stdout, dtype="<f4").copy()
+    return MediaWindow(frames, timestamps, audio, video_ended)
 
 
 class Embedder:
@@ -138,7 +142,7 @@ class Embedder:
 
     def runtime(self) -> dict[str, str]:
         return {
-            "device": str(self._load().device),
+            "device": str(self._model.device),
             "torch": version("torch"),
             "sentence_transformers": version("sentence-transformers"),
             "transformers": version("transformers"),

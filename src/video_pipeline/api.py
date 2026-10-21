@@ -43,7 +43,7 @@ class PrettyJSONResponse(JSONResponse):
 def create_app(data_dir: Path, device: str | None = None) -> FastAPI:
     store = VideoStore(data_dir)
     jobs = JobStore(store.database_path, database_url())
-    search = SearchStore(data_dir)
+    search = SearchStore(store.database_path)
     embedder = Embedder(device, text_only=True)
 
     @asynccontextmanager
