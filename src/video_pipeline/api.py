@@ -2,6 +2,7 @@ import json
 import subprocess
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from math import isfinite
 from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
@@ -14,6 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from video_pipeline.jobs import (
     BatchJobRequest,
+    ClipOperation,
     JobRecord,
     JobStore,
     ProcessingOperation,
@@ -61,9 +63,13 @@ def create_app(data_dir: Path) -> FastAPI:
     async def validation_error(
         request: Request, error: RequestValidationError
     ) -> Response:
-        return PrettyJSONResponse(
-            {"detail": jsonable_encoder(error.errors())}, status_code=422
+        errors = jsonable_encoder(
+            error.errors(),
+            custom_encoder={
+                float: lambda value: value if isfinite(value) else str(value)
+            },
         )
+        return PrettyJSONResponse({"detail": errors}, status_code=422)
 
     @app.post("/videos", status_code=201)
     def upload_video(file: UploadFile, response: Response) -> VideoRecord:
@@ -92,11 +98,19 @@ def create_app(data_dir: Path) -> FastAPI:
             media_type="application/octet-stream",
         )
 
+    def validate_submission(video_id: UUID, operation: ProcessingOperation) -> None:
+        video = get_video(video_id)
+        if isinstance(operation, ClipOperation):
+            try:
+                operation.validate_source_duration(video.duration_seconds)
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
+
     @app.post("/videos/{video_id}/jobs", status_code=202)
     def create_job(
         video_id: UUID, operation: ProcessingOperation, response: Response
     ) -> JobRecord:
-        get_video(video_id)
+        validate_submission(video_id, operation)
         job = jobs.create(video_id, operation)
         response.headers["Location"] = f"/jobs/{job.id}"
         return job
@@ -108,7 +122,7 @@ def create_app(data_dir: Path) -> FastAPI:
     @app.post("/jobs/batch", status_code=202)
     def create_batch(request: BatchJobRequest) -> list[JobRecord]:
         for item in request.jobs:
-            get_video(item.video_id)
+            validate_submission(item.video_id, item.operation)
         return jobs.create_many(request.jobs)
 
     @app.get("/jobs/{job_id}")

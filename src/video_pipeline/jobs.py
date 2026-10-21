@@ -3,7 +3,7 @@ import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 from uuid import UUID, uuid4
 
 import procrastinate
@@ -13,7 +13,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 EDIT_TASK = "video_pipeline.edit"
 EDIT_QUEUE = "video"
@@ -41,15 +41,35 @@ class ThumbnailOperation(BaseModel):
     type: Literal["thumbnail"]
 
 
+class ClipOperation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["clip"]
+    start_seconds: Annotated[float, Field(ge=0, allow_inf_nan=False)]
+    end_seconds: Annotated[float, Field(gt=0, allow_inf_nan=False)]
+
+    @model_validator(mode="after")
+    def validate_range(self) -> Self:
+        if self.end_seconds <= self.start_seconds:
+            raise ValueError("Clip end must be after its start.")
+        return self
+
+    def validate_source_duration(self, duration_seconds: float | None) -> None:
+        if duration_seconds is None:
+            raise ValueError("Clipping requires a video with a known duration.")
+        if self.end_seconds > duration_seconds:
+            raise ValueError("Clip end must not exceed the video duration.")
+
+
 ProcessingOperation = Annotated[
-    TranscodeOperation | ThumbnailOperation, Field(discriminator="type")
+    TranscodeOperation | ThumbnailOperation | ClipOperation, Field(discriminator="type")
 ]
 
 
 class JobProgress(BaseModel):
-    stage: Literal["queued", "inspecting", "transcoding", "thumbnail", "completed"] = (
-        "queued"
-    )
+    stage: Literal[
+        "queued", "inspecting", "transcoding", "thumbnail", "clipping", "completed"
+    ] = "queued"
     processed_seconds: float | None = None
     duration_seconds: float | None = None
     percent: float | None = None
