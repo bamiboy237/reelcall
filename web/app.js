@@ -60,8 +60,8 @@ if (demo) {
   const resultButton = demo.querySelector("[data-result]");
   const player = demo.querySelector("[data-player]");
 
-  const PATH_TEXT = "~/Videos/aots4ep5.mp4";
-  const QUERY_TEXT = "the part where someone drops the red cup";
+  const PATH_TEXT = "~/Videos/witch-hat.mp4";
+  const QUERY_TEXT = "the girl in a black witch hat";
   const PHASES = {
     add: { label: "Add video", keys: [["⏎", "add"], ["esc", "cancel"]] },
     index: { label: "Indexing", keys: [["…", "indexing"], ["esc", "cancel"]] },
