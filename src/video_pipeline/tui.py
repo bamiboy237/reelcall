@@ -903,12 +903,12 @@ class VideoScreen(View):
                 if state in ("uploaded", "failed")
                 else "search opens once indexing finishes"
             )
-            self.pipeline.notice(Text(f"Not searchable yet — {hint}.", MUTED), 3)
+            self.pipeline.notice(Text(f"Not searchable yet — {hint}.", ERROR), 4)
             return
 
         def chosen(query: str | None) -> None:
             if query and query.strip():
-                self.pipeline.push_screen(Results(query.strip(), self.video))
+                self.pipeline.push_screen(Results(query.strip(), self.video_id))
 
         self.pipeline.warm()
         self.pipeline.push_screen(
@@ -971,12 +971,11 @@ class Results(View):
         Binding("escape", "back"),
     ]
 
-    def __init__(self, query: str, video: VideoRecord | None = None) -> None:
+    def __init__(self, query: str, video_id: UUID | None = None) -> None:
         super().__init__()
         self.query_text = query
         # Set when the search is scoped to one video's workspace.
-        self.video_id = video.id if video is not None else None
-        self.scope_name = (video.filename or "untitled") if video is not None else None
+        self.video_id = video_id
         self.min_score: float | None = None
         self.names: list[VideoRecord] = []
         self.hits: list[SearchHit] = []
@@ -1181,9 +1180,11 @@ class Results(View):
             self.pipeline.push_screen(VideoScreen(hit.video_id, hit))
 
     def crumb(self) -> str:
-        if self.scope_name is not None:
-            return f"{self.scope_name}  ›  ⌕ {term.clip(self.query_text, 32)}"
-        return f"⌕ {term.clip(self.query_text, 32)}"
+        if self.video_id is None:
+            return f"⌕ {term.clip(self.query_text, 32)}"
+        record = self.pipeline.snapshot.video(self.video_id)
+        name = (record.filename if record is not None else None) or "untitled"
+        return f"{name}  ›  ⌕ {term.clip(self.query_text, 32)}"
 
     def action_edit(self) -> None:
         self.query_one("#query").focus()
