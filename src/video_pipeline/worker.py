@@ -22,6 +22,7 @@ from video_pipeline.inspection import inspect_video
 from video_pipeline.jobs import (
     EDIT_QUEUE,
     EDIT_TASK,
+    ClipOperation,
     JobOutput,
     JobProgress,
     JobStore,
@@ -29,7 +30,7 @@ from video_pipeline.jobs import (
     TranscodeOperation,
     database_url,
 )
-from video_pipeline.processing import extract_thumbnail, transcode_video
+from video_pipeline.processing import clip_video, extract_thumbnail, transcode_video
 from video_pipeline.storage import VideoStore
 
 RECOVERY_TASK = "video_pipeline.recover_stalled"
@@ -79,21 +80,21 @@ def process_job(
     source = inspect_video(videos.original_path(job.video_id))
     output_dir = jobs.outputs_dir / str(job.id)
 
+    def save_progress(seconds: float) -> None:
+        if context.should_abort():
+            raise exceptions.JobAborted("Worker shutdown requested.")
+        job.progress.processed_seconds = seconds
+        duration = job.progress.duration_seconds
+        if duration is not None and duration > 0:
+            job.progress.percent = round(min(100, seconds / duration * 100), 2)
+        jobs.save(job)
+
     with TemporaryDirectory(dir=output_dir, prefix=f"attempt-{job.attempts}-") as temp:
         if isinstance(job.operation, TranscodeOperation):
             job.progress = JobProgress(
                 stage="transcoding", duration_seconds=source.duration_seconds
             )
             jobs.save(job)
-
-            def save_progress(seconds: float) -> None:
-                if context.should_abort():
-                    raise exceptions.JobAborted("Worker shutdown requested.")
-                job.progress.processed_seconds = seconds
-                duration = source.duration_seconds
-                if duration is not None and duration > 0:
-                    job.progress.percent = round(min(100, seconds / duration * 100), 2)
-                jobs.save(job)
 
             filename = "video.mp4"
             media_type = "video/mp4"
@@ -109,6 +110,20 @@ def process_job(
             filename = "thumbnail.jpg"
             media_type = "image/jpeg"
             extract_thumbnail(source.path, Path(temp) / filename)
+        elif isinstance(job.operation, ClipOperation):
+            job.operation.validate_source_duration(source.duration_seconds)
+            duration = job.operation.end_seconds - job.operation.start_seconds
+            job.progress = JobProgress(stage="clipping", duration_seconds=duration)
+            jobs.save(job)
+            filename = "clip.mp4"
+            media_type = "video/mp4"
+            clip_video(
+                source,
+                job.operation.start_seconds,
+                job.operation.end_seconds,
+                Path(temp) / filename,
+                save_progress,
+            )
 
         if context.should_abort():
             raise exceptions.JobAborted("Worker shutdown requested.")
