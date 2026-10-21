@@ -604,6 +604,8 @@ class PlayerScreen(View):
         ]
 
     def draw_frame(self) -> None:
+        if self.playback is not None and self.playback.error:
+            return  # The stored frame is stale; keep the error message.
         if self.frame is not None:
             picture = self.query_one(".video-frame", Static)
             width, height = picture.content_size
@@ -631,6 +633,7 @@ class PlayerScreen(View):
         playback = self.playback
         if playback is not None:
             if playback.error:
+                self.frame = None
                 self.query_one(".video-frame", Static).update(
                     Text("Playback failed.", ERROR)
                 )
@@ -878,12 +881,12 @@ class VideoScreen(View):
             path,
             moment.start_seconds,
             moment.end_seconds,
-            self.video.filename or "Video",
+            self.video.filename or "untitled",
         )
 
     def action_play_video(self) -> None:
         path = self.pipeline.videos.original_path(self.video_id)
-        self.pipeline.play(path, label=self.video.filename or "video")
+        self.pipeline.play(path, label=self.video.filename or "untitled")
 
     def action_index(self) -> None:
         if self.pipeline.snapshot.state(self.video)[0] in ("uploaded", "failed"):
@@ -1132,7 +1135,7 @@ class Results(View):
         hit = self.hits[index]
         path = self.pipeline.videos.original_path(hit.video_id)
         self.pipeline.play(
-            path, hit.start_seconds, hit.end_seconds, hit.filename or "Video"
+            path, hit.start_seconds, hit.end_seconds, hit.filename or "untitled"
         )
 
     def action_open_moment(self) -> None:

@@ -24,7 +24,6 @@ class Decoder:
         self.start = start
         self.end = end
         self.position = start
-        self.frame_seconds: float | None = None
         self.paused = False
         self.ended = False
         self.muted = False
@@ -58,6 +57,7 @@ class Decoder:
         if self.end is not None:
             trim += f":end={self.end}"
             options["t"] = self.end - position
+        # FFPyPlayer takes af as a single string, unlike vf's list form.
         options.update(vf=[f"trim={trim}"], af=f"atrim={trim}")
         try:
             self._player = MediaPlayer(
@@ -124,8 +124,9 @@ class Decoder:
             if self.end is not None:
                 self.position = min(self.position, self.end)
         if self.ended:
-            self.paused = True
-            self._player.set_pause(True)
+            if not self.paused:
+                self.paused = True
+                self._player.set_pause(True)
             if self.end is not None:
                 self.position = self.end
             return None
@@ -154,7 +155,6 @@ class Decoder:
         if identity == self._last_frame:
             return None
         self._last_frame = identity
-        self.frame_seconds = pts
         return Image.frombytes("RGB", image.get_size(), bytes(image.to_bytearray()[0]))
 
     def toggle_pause(self) -> None:
@@ -184,7 +184,6 @@ class Decoder:
         self.ended = False
         self._pending = None
         self._last_frame = None
-        self.frame_seconds = None
         self._size = (0, 0)
         self._refresh = True
         self.position = target
@@ -252,7 +251,6 @@ def main() -> None:
                 name: getattr(decoder, name)
                 for name in (
                     "position",
-                    "frame_seconds",
                     "end",
                     "paused",
                     "ended",

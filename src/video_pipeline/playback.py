@@ -14,9 +14,8 @@ from PIL import Image
 
 class Playback:
     def __init__(self, path: Path, start: float = 0, end: float | None = None) -> None:
-        self.path, self.start, self.end = path, start, end
+        self.start, self.end = start, end
         self.position = start
-        self.frame_seconds: float | None = None
         self.paused = False
         self.ended = False
         self.muted = False
@@ -118,7 +117,6 @@ class Playback:
             frame, self._frame = self._frame, None
         for name in (
             "position",
-            "frame_seconds",
             "end",
             "paused",
             "ended",
