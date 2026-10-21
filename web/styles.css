@@ -39,17 +39,17 @@
 }
 
 :root {
-  --bg: #0d0f12;
-  --bg-raised: #141920;
-  --bg-terminal: #11151c;
-  --border: #262c36;
-  --border-strong: #3a4353;
-  --text: #f5f3ec;
-  --text-dim: #d9d6cb;
-  --text-muted: #a8adb7;
-  --text-faint: #7c8594;
-  --blue: #155dfc;
-  --blue-text: #7aa2ff;
+  color-scheme: dark;
+  --bg: #171916;
+  --bg-raised: #22251f;
+  --border: #3c4237;
+  --border-strong: #737c68;
+  --text: #f2f0e6;
+  --text-dim: #d9dccb;
+  --text-muted: #b5bda8;
+  --text-faint: #9aa68b;
+  --accent: #efa78b;
+  --on-accent: #281b15;
 
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "IBM Plex Serif", Georgia, serif;
@@ -77,13 +77,14 @@ body {
 }
 
 ::selection {
-  background: rgba(21, 93, 252, 0.45);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 a:focus-visible,
 button:focus-visible,
 video:focus-visible {
-  outline: 2px solid var(--blue-text);
+  outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 
@@ -196,8 +197,8 @@ button {
 }
 
 .btn--install {
-  background: var(--blue);
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
   font-family: var(--font-mono);
   font-weight: 500;
 }
@@ -311,7 +312,7 @@ button {
 }
 
 .copy.is-copied {
-  color: var(--blue-text);
+  color: var(--accent);
 }
 
 /* Product / demo */
@@ -329,11 +330,27 @@ button {
 }
 
 .terminal {
-  background: var(--bg-terminal);
-  border: 1px solid #2c333f;
+  --bg: #1b1917;
+  --bg-raised: #121211;
+  --bg-titlebar: #26221d;
+  --bg-result: #2c2a22;
+  --bg-result-hover: #363327;
+  --bg-result-active: #403b2d;
+  --bg-progress: #39372b;
+  --border: #4d473c;
+  --border-strong: #817461;
+  --text: #efe7d5;
+  --text-dim: #d8c9af;
+  --text-muted: #c1b296;
+  --text-faint: #b1a084;
+  --success: #b9c59a;
+
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
   overflow: clip;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 2px 4px rgba(7, 10, 7, 0.32), 0 24px 48px rgba(7, 10, 7, 0.25);
   font-family: var(--font-mono);
 }
 
@@ -342,6 +359,7 @@ button {
   gap: 8px;
   align-items: center;
   padding: 14px 0 14px 16px;
+  background: var(--bg-titlebar);
   border-bottom: 1px solid var(--border);
 }
 
@@ -395,6 +413,7 @@ button {
   gap: 2px;
   min-height: 44px;
   padding: 10px 14px;
+  background: var(--bg-raised);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   font-size: 15px;
@@ -413,7 +432,7 @@ button {
   flex-shrink: 0;
   width: 8px;
   height: 20px;
-  background: var(--blue-text);
+  background: var(--accent);
   animation: blink 1s steps(1, jump-none) infinite;
 }
 
@@ -441,27 +460,27 @@ button {
 }
 
 .status__mark {
-  color: var(--blue-text);
+  color: var(--success);
   margin-right: 8px;
 }
 
 .progress {
   height: 4px;
   border-radius: 999px;
-  background: #232833;
+  background: var(--bg-progress);
   overflow: hidden;
 }
 
 .progress__fill {
   height: 100%;
-  background: var(--blue-text);
+  background: var(--accent);
   transform: scaleX(0);
   transform-origin: left center;
 }
 
 .progress__fill.is-running {
   transform: scaleX(1);
-  transition: transform 2600ms linear;
+  transition: transform 3600ms linear;
 }
 
 .results {
@@ -483,19 +502,25 @@ button {
   width: 100%;
   padding: 10px;
   text-align: left;
-  background: #171c24;
-  border: 1px solid #2c333f;
+  background: var(--bg-result);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  transition: transform 160ms var(--ease-out), border-color 150ms var(--ease);
+  transition:
+    transform 160ms var(--ease-out),
+    border-color 150ms var(--ease),
+    background-color 150ms var(--ease);
 }
 
 .result:active {
+  background: var(--bg-result-active);
+  border-color: var(--accent);
   transform: scale(0.99);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .result:hover {
-    border-color: var(--border-strong);
+  .result:hover:not(:active) {
+    background: var(--bg-result-hover);
+    border-color: var(--accent);
   }
 }
 
@@ -517,8 +542,8 @@ button {
   margin-left: auto;
   flex-shrink: 0;
   font-size: 13px;
-  color: var(--blue-text);
-  border: 1px solid #2c333f;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 4px 8px;
 }
@@ -537,7 +562,7 @@ button {
   aspect-ratio: 16 / 9;
   margin-inline: auto;
   object-fit: contain;
-  border: 1px solid #2c333f;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: #000;
 }
@@ -625,7 +650,7 @@ button {
   font-family: var(--font-serif);
   font-size: 20px;
   font-weight: 500;
-  color: #ece9df;
+  color: var(--text);
 }
 
 .faq__answer {
