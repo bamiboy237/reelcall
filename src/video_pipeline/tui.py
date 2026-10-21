@@ -29,6 +29,7 @@ from textual.suggester import Suggester
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 from textual.worker import get_current_worker
+from tqdm import tqdm
 
 from video_pipeline import term
 from video_pipeline.cli import explain, shown
@@ -73,7 +74,7 @@ SECRETS = (
     (re.compile(r"hf_[A-Za-z0-9]{8,}"), "hf_•••"),
 )
 START_SERVICE = "docker compose up -d"
-NO_PREVIEW = "Preview appears once\nthe video is searchable."
+NO_PREVIEW = "No preview."
 
 
 def redact(text: str) -> str:
@@ -183,7 +184,7 @@ def fill(rows: OptionList, options: list[Option]) -> None:
         return
     selected = rows.highlighted_option.id if rows.highlighted_option else None
     rows.set_options(options)
-    if selected in ids:
+    if selected is not None and selected in ids:
         rows.highlighted = ids.index(selected)
     else:
         rows.highlighted = next((index for index, key in enumerate(ids) if key), None)
@@ -206,7 +207,7 @@ def preview(searches: SearchStore, video_id: UUID, window: int | None) -> Text:
             return Text(NO_PREVIEW, FAINT)
         window = record.windows // 2
     image = searches.thumbnail(video_id, window)
-    return pixels(image) if image else Text("No preview for this moment.", FAINT)
+    return pixels(image) if image else Text(NO_PREVIEW, FAINT)
 
 
 @dataclass
@@ -777,6 +778,8 @@ class Results(View):
     BINDINGS = [
         Binding("right", "open_moment"),
         Binding("slash", "edit"),
+        Binding("r", "retry"),
+        Binding("f", "filter"),
         Binding("d", "details"),
         Binding("escape", "back"),
     ]
@@ -784,6 +787,7 @@ class Results(View):
     def __init__(self, query: str) -> None:
         super().__init__()
         self.query_text = query
+        self.min_score: float | None = None
         self.names: list[VideoRecord] = []
         self.hits: list[SearchHit] = []
         self.thumbnails: list[bytes | None] = []
@@ -795,6 +799,7 @@ class Results(View):
         with Horizontal(classes="field"):
             yield Static("⌕", classes="glyph")
             yield Input(self.query_text, compact=True, id="query")
+        yield Static(classes="search-filter")
         with Horizontal(classes="body"):
             yield OptionList(compact=True, classes="rows")
             yield Static(classes="preview")
@@ -815,16 +820,17 @@ class Results(View):
         self.searching = True
         self.generation += 1
         self.update_view()
-        self.search(self.generation, self.query_text)
+        self.search(self.generation, self.query_text, self.min_score)
 
     @work(thread=True, exclusive=True)
-    def search(self, generation: int, query: str) -> None:
+    def search(self, generation: int, query: str, min_score: float | None) -> None:
         app = self.pipeline
         key = id(get_current_worker())
         app.call_from_thread(app.working, key, "searching")
         try:
             response = app.searches.search(
-                SearchRequest(query=query, limit=12), app.text_embedder()
+                SearchRequest(query=query, limit=12, min_score=min_score),
+                app.text_embedder(),
             )
             thumbnails = [
                 app.searches.thumbnail(hit.video_id, hit.window)
@@ -834,11 +840,9 @@ class Results(View):
                 self.show, generation, response.matches, thumbnails, None
             )
         except (OSError, ValueError) as error:
-            summary = "Search isn't available right now."
+            summary = "Search failed."
             if isinstance(error, ValueError) and "Reindex" in str(error):
-                summary = (
-                    "These videos need indexing again before they can be searched."
-                )
+                summary = "Reindex these videos."
             problem = (summary, explain(error))
             app.call_from_thread(self.show, generation, [], [], problem)
         finally:
@@ -869,13 +873,30 @@ class Results(View):
             return [("⏎", "search"), ("esc", "results")]
         choice = self.selected()
         if choice and choice[0] == "moment":
-            return [("⏎", "play"), ("→", "open video"), ("/", "edit"), ("esc", "back")]
+            return [
+                ("⏎", "play"),
+                ("→", "open video"),
+                ("f", "filter"),
+                ("/", "edit"),
+                ("esc", "back"),
+            ]
         if self.problem:
-            return [("d", "details"), ("/", "edit"), ("esc", "back")]
-        return [("⏎", "open"), ("/", "edit"), ("esc", "back")]
+            return [
+                ("r", "retry"),
+                ("d", "details"),
+                ("f", "filter"),
+                ("/", "edit"),
+                ("esc", "back"),
+            ]
+        pairs = [("⏎", "open")] if choice else []
+        return [*pairs, ("f", "filter"), ("/", "edit"), ("esc", "back")]
 
     def update_view(self) -> None:
         snapshot = self.pipeline.snapshot
+        filter_label = self.query_one(".search-filter", Static)
+        filter_label.display = self.min_score is not None
+        if self.min_score is not None:
+            filter_label.update(Text(f"Minimum score: {self.min_score:g}", FAINT))
         width = self.size.width - (10 if self.has_class("-narrow") else 52)
         options: list[Option] = []
         if self.names:
@@ -895,11 +916,12 @@ class Results(View):
         elif self.problem:
             options.append(Option(Text(self.problem[0], ERROR), disabled=True))
         elif not self.hits:
-            message = (
-                "No matching moments."
-                if snapshot.ready
-                else "Nothing is searchable yet. Videos become searchable once indexed."
-            )
+            if not snapshot.ready:
+                message = "No indexed videos."
+            elif self.min_score is not None:
+                message = "No results. Press f to lower the minimum score."
+            else:
+                message = "No results."
             options.append(Option(Text(message, FAINT), disabled=True))
         starts = [term.timecode(hit.start_seconds) for hit in self.hits]
         ends = [term.timecode(hit.end_seconds) for hit in self.hits]
@@ -962,6 +984,34 @@ class Results(View):
     def action_edit(self) -> None:
         self.query_one("#query").focus()
 
+    def action_retry(self) -> None:
+        if self.problem:
+            self.run_search()
+
+    def action_filter(self) -> None:
+        def chosen(value: str | None) -> None:
+            if value is None:
+                return
+            try:
+                request = SearchRequest(
+                    query=self.query_text,
+                    min_score=float(value) if value.strip() else None,
+                )
+            except ValueError:
+                self.pipeline.notice(
+                    Text("Enter a score from -1 to 1, or leave it blank.", ERROR), 4
+                )
+                return
+            if request.min_score != self.min_score:
+                self.min_score = request.min_score
+                self.run_search()
+
+        value = "" if self.min_score is None else f"{self.min_score:g}"
+        self.pipeline.push_screen(
+            Ask("Minimum score", "-1 to 1; blank shows all", value),
+            chosen,
+        )
+
     def action_details(self) -> None:
         if self.problem:
             self.pipeline.push_screen(ErrorSheet(*self.problem))
@@ -976,7 +1026,7 @@ class Results(View):
     def submitted(self, event: Input.Submitted) -> None:
         query = event.value.strip()
         self.query_one(".rows").focus()
-        if query and query != self.query_text:
+        if query and (query != self.query_text or self.problem):
             self.query_text = query
             self.run_search()
 
@@ -1255,6 +1305,7 @@ class Pipeline(App[None]):
     VideoScreen.-details .details { display: block; }
 
     .body { height: 1fr; }
+    .search-filter { height: auto; margin: 0 0 1 0; }
     .body .rows { width: 1fr; }
     .body .preview { margin: 0 0 0 2; }
     Results.-narrow .body .preview { display: none; }
@@ -1282,6 +1333,9 @@ class Pipeline(App[None]):
     BINDINGS = [Binding("ctrl+c,ctrl+q", "quit", show=False, priority=True)]
 
     def __init__(self, data_dir: Path, device: str | None = None) -> None:
+        # On macOS this may spawn a helper that needs stderr's real descriptor.
+        # Initialize before Textual captures output and model loading uses tqdm.
+        tqdm.get_lock()
         super().__init__()
         self.videos = VideoStore(data_dir)
         self.searches = SearchStore(self.videos.database_path)
@@ -1450,9 +1504,7 @@ class Pipeline(App[None]):
             return
         try:
             if isinstance(operation, IndexOperation) and not video.duration_seconds:
-                raise ValueError(
-                    "This video's length is unknown, so it can't be indexed."
-                )
+                raise ValueError("Video duration is unknown.")
             if isinstance(operation, ClipOperation):
                 operation.validate_source_duration(video.duration_seconds)
         except ValueError as error:
