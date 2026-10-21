@@ -4,10 +4,14 @@ import os
 import shutil
 import sys
 import threading
+import unicodedata
 from collections.abc import Iterable
 from typing import TextIO
 
+from rich.cells import cell_len
+
 from video_pipeline.inspection import VideoInfo
+from video_pipeline.storage import VideoRecord
 
 RESET = "\033[0m"
 
@@ -83,12 +87,56 @@ def emit(*lines: str, stream: TextIO = sys.stdout) -> None:
         print(f"  {line}" if line else "", file=stream, flush=True)
 
 
+def clusters(text: str) -> list[str]:
+    """Split into user-perceived characters, keeping emoji sequences whole."""
+    result: list[str] = []
+    for char in text:
+        joins = (
+            unicodedata.combining(char)
+            or char in "\u200d\ufe0e\ufe0f"
+            or "\U0001f3fb" <= char <= "\U0001f3ff"
+            or (result and result[-1].endswith("\u200d"))
+        )
+        if joins and result:
+            result[-1] += char
+        else:
+            result.append(char)
+    return result
+
+
 def pad(text: str, size: int) -> str:
-    return text + " " * max(0, size - len(text))
+    return text + " " * max(0, size - cell_len(text))
+
+
+def fit(parts: list[str], size: int) -> list[str]:
+    """The longest run of parts that fits in size cells."""
+    width = 0
+    for index, part in enumerate(parts):
+        width += cell_len(part)
+        if width > size:
+            return parts[:index]
+    return parts
 
 
 def clip(text: str, size: int) -> str:
-    return text if len(text) <= size else text[: max(0, size - 1)] + "…"
+    """Cut the end: for text whose start carries the meaning."""
+    if cell_len(text) <= size:
+        return text
+    return "".join(fit(clusters(text), size - 1)) + "…"
+
+
+def middle(text: str, size: int) -> str:
+    """Cut the middle: for names that differ at the end, like file names."""
+    if cell_len(text) <= size:
+        return text
+    parts = clusters(text)
+    tail = "".join(fit(parts[::-1], (size - 1) // 2)[::-1])
+    head = "".join(fit(parts, size - 1 - cell_len(tail)))
+    return f"{head}…{tail}"
+
+
+def count(number: int, noun: str, plural: str = "") -> str:
+    return f"{number:,} {noun if number == 1 else plural or noun + 's'}"
 
 
 def dot(paint: Painter = out) -> str:
@@ -113,16 +161,16 @@ def elapsed(seconds: float) -> str:
 
 def filesize(size: int) -> str:
     value = float(size)
-    for unit in ("B", "KB", "MB", "GB"):
-        if value < 1000 or unit == "GB":
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1000 or unit == "TB":
             return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
         value /= 1000
     raise AssertionError
 
 
 def score(value: float) -> str:
-    text = f"{value:.2f}"
-    return text.replace("0.", ".", 1) if 0 <= value < 1 else text
+    text = f"{abs(value):.2f}".removeprefix("0")
+    return f"−{text}" if value < 0 else text
 
 
 def shimmer(label: str, frame: int) -> list[tuple[str, int]]:
@@ -134,7 +182,7 @@ def shimmer(label: str, frame: int) -> list[tuple[str, int]]:
     ]
 
 
-def facts(info: VideoInfo) -> list[tuple[str, list[str]]]:
+def facts(info: VideoInfo | VideoRecord) -> list[tuple[str, list[str]]]:
     """A video's essentials as labelled parts, for any renderer."""
     rows = [
         (

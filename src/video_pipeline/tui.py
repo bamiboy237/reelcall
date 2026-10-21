@@ -1,35 +1,47 @@
-"""The interactive app: type to find a moment, or / for commands."""
+"""The interactive app: a library of videos, their moments and their progress."""
 
-import shlex
+import re
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
+from typing import cast
+from uuid import UUID
 
+import psycopg
 from PIL import Image
+from psycopg_pool import PoolTimeout
+from pydantic import ValidationError
 from rich.color import Color
 from rich.style import Style
+from rich.table import Table
 from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.reactive import reactive
+from textual.screen import ModalScreen, Screen
 from textual.suggester import Suggester
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
-from textual.worker import get_current_worker
 
 from video_pipeline import term
 from video_pipeline.cli import explain, shown
 from video_pipeline.embeddings import Embedder
-from video_pipeline.search import (
-    IndexSettings,
-    SearchHit,
-    SearchMode,
-    SearchRequest,
-    SearchStore,
+from video_pipeline.jobs import (
+    ClipOperation,
+    IndexOperation,
+    JobRecord,
+    JobStore,
+    ProcessingOperation,
+    TranscodeOperation,
+    database_url,
 )
+from video_pipeline.search import SearchHit, SearchRequest, SearchStore
 from video_pipeline.storage import VideoRecord, VideoStore
 
 STRONG = Style.parse("bold color(255)")
@@ -39,52 +51,92 @@ FAINT = Style.parse("color(244)")
 GHOST = Style.parse("color(238)")
 ERROR = Style.parse("color(203)")
 
-MODES: tuple[SearchMode, ...] = ("all", "visual", "audio", "combined")
-SLASH = (
-    ("/index", "path…", "make searchable"),
-    ("/inspect", "path", "streams and length"),
-    ("/process", "path height", "resize and thumbnail"),
-    ("/save", "", "keep the highlighted moment"),
-    ("/videos", "", "library"),
-    ("/mode", "kind", "sight, sound, or both"),
-    ("/clear", "", "start over"),
-    ("/quit", "", "leave"),
+STAGES = {
+    "queued": "waiting",
+    "inspecting": "preparing",
+    "transcoding": "resizing",
+    "thumbnail": "thumbnail",
+    "clipping": "saving clip",
+    "indexing": "indexing",
+    "completed": "done",
+}
+FAILURES = {
+    "index": "Couldn't make this video searchable.",
+    "transcode": "Couldn't resize this video.",
+    "thumbnail": "Couldn't extract a thumbnail.",
+    "clip": "Couldn't save this clip.",
+}
+SECRETS = (
+    (re.compile(r"(postgres(?:ql)?://[^:/@\s]+:)[^@\s]+@"), r"\1•••@"),
+    (re.compile(r"hf_[A-Za-z0-9]{8,}"), "hf_•••"),
 )
-PATH_COMMANDS = ("/index", "/inspect", "/process")
+START_SERVICE = "docker compose up -d"
+NO_PREVIEW = "Preview appears once\nthe video is searchable."
 
 
-def wordmark() -> Text:
-    rows = [
-        "".join(term.WORDMARK_FONT[c][row] for c in "VIDEO PIPELINE")
-        for row in range(3)
-    ]
-    span = len(rows[0]) - 1
-    text = Text()
-    for row in rows:
-        for column, char in enumerate(row):
-            text.append(
-                char, Style(color=Color.from_ansi(255 - round(column / span * 12)))
-            )
-        text.append("\n")
+def redact(text: str) -> str:
+    for pattern, replacement in SECRETS:
+        text = pattern.sub(replacement, text)
     return text
 
 
-def meter(fraction: float, cells: int) -> Text:
+def ago(moment: datetime) -> str:
+    seconds = (datetime.now(UTC) - moment).total_seconds()
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{seconds // 60:.0f} min ago"
+    if seconds < 86_400:
+        return f"{seconds // 3600:.0f} h ago"
+    return f"{moment:%b} {moment.day}"
+
+
+def describe(operation: ProcessingOperation) -> str:
+    if isinstance(operation, TranscodeOperation):
+        return f"{operation.height}p video"
+    if isinstance(operation, ClipOperation):
+        start = term.timecode(operation.start_seconds)
+        return f"clip {start} – {term.timecode(operation.end_seconds)}"
+    if isinstance(operation, IndexOperation):
+        return "search index"
+    return "thumbnail"
+
+
+def span(hit: SearchHit) -> str:
+    return f"{term.timecode(hit.start_seconds)} – {term.timecode(hit.end_seconds)}"
+
+
+def seconds(text: str) -> float:
+    total = 0.0
+    for part in text.strip().split(":"):
+        total = total * 60 + float(part)
+    return total
+
+
+def bar(fraction: float | None, cells: int, frame: int) -> Text:
+    """A progress bar, or a sweeping segment when the amount is unknown."""
+    if fraction is None:
+        travel = cells - 3
+        position = travel - abs(travel - frame % (2 * travel))
+        return Text.assemble(
+            ("━" * position, GHOST), ("━━━", TEXT), ("━" * (travel - position), GHOST)
+        )
     filled = round(max(0.0, min(1.0, fraction)) * cells)
     return Text.assemble(("━" * filled, TEXT), ("━" * (cells - filled), GHOST))
 
 
-def menu_rows(rows: tuple[tuple[str, str, str], ...]) -> list[Text]:
-    name_size = max(len(name) for name, _, _ in rows) + 3
-    argument_size = max(len(arguments) for _, arguments, _ in rows) + 3
-    return [
-        Text.assemble(
-            (term.pad(name, name_size), TEXT),
-            (term.pad(arguments, argument_size), FAINT),
-            (blurb, MUTED),
+def progress(job: JobRecord | None, frame: int, cells: int, stage: bool = True) -> Text:
+    """Stage label, bar and percentage; no job means a file is being added."""
+    percent = job.progress.percent if job and job.status == "running" else None
+    text = Text()
+    if stage:
+        text.append(
+            term.pad(STAGES[job.progress.stage] if job else "adding", 12), MUTED
         )
-        for name, arguments, blurb in rows
-    ]
+    text.append_text(bar(None if percent is None else percent / 100, cells, frame))
+    if percent is not None:
+        text.append(f" {percent:3.0f}%", TEXT)
+    return text
 
 
 def pixels(data: bytes, width: int = 36, rows: int = 10) -> Text:
@@ -100,74 +152,170 @@ def pixels(data: bytes, width: int = 36, rows: int = 10) -> Text:
 
     text = Text()
     for y in range(0, height, 2):
+        text.append("\n" if y else "")
         for x in range(columns):
             bottom = color(x, y + 1) if y + 1 < height else None
             text.append("▀", Style(color=color(x, y), bgcolor=bottom))
-        text.append("\n")
     return text
 
 
-def span(hit: SearchHit) -> str:
-    return f"{term.timecode(hit.start_seconds)} – {term.timecode(hit.end_seconds)}"
-
-
-def player(path: Path, start: float, end: float) -> list[str] | None:
+def player(path: Path, start: float = 0, end: float | None = None) -> list[str] | None:
     if shutil.which("mpv"):
-        return ["mpv", f"--start={start}", f"--end={end}", "--really-quiet", str(path)]
+        window = [f"--start={start}"] + ([f"--end={end}"] if end else [])
+        return ["mpv", *window, "--really-quiet", str(path)]
     if shutil.which("ffplay"):
-        return [
-            "ffplay", "-v", "quiet", "-autoexit",
-            "-ss", f"{start}", "-t", f"{end - start}", str(path),
-        ]  # fmt: skip
+        window = ["-ss", f"{start}"] + (["-t", f"{end - start}"] if end else [])
+        return ["ffplay", "-v", "quiet", "-autoexit", *window, str(path)]
     for opener in ("open", "xdg-open"):
         if shutil.which(opener):
             return [opener, str(path)]
     return None
 
 
-def facts(info_rows: list[tuple[str, list[str]]]) -> Text:
-    size = max(len(label) for label, _ in info_rows) + 3
+def fill(rows: OptionList, options: list[Option]) -> None:
+    """Show new options, keeping the highlighted row when it still exists."""
+    ids = [option.id for option in options]
+    if ids == [rows.get_option_at_index(i).id for i in range(rows.option_count)]:
+        for index, option in enumerate(options):
+            rows.replace_option_prompt_at_index(index, option.prompt)
+        return
+    selected = rows.highlighted_option.id if rows.highlighted_option else None
+    rows.set_options(options)
+    if selected in ids:
+        rows.highlighted = ids.index(selected)
+    else:
+        rows.highlighted = next((index for index, key in enumerate(ids) if key), None)
+
+
+def keys(pairs: list[tuple[str, str]]) -> Text:
     text = Text()
-    for label, parts in info_rows:
-        text.append(term.pad(label, size), MUTED)
-        if parts:
-            text.append(" · ".join(parts), TEXT)
-        else:
-            text.append("none", FAINT)
-        text.append("\n")
-    text.rstrip()
+    for index, (key, label) in enumerate(pairs):
+        text.append("   " if index else "")
+        text.append(key, TEXT)
+        text.append(f" {label}", FAINT)
     return text
 
 
-class Completer(Suggester):
-    """Ghost-text completion for commands, paths and modes."""
+def preview(searches: SearchStore, video_id: UUID, window: int | None) -> Text:
+    """A thumbnail from the search index, or why there isn't one."""
+    if window is None:
+        record = searches.get(video_id)
+        if record is None:
+            return Text(NO_PREVIEW, FAINT)
+        window = record.windows // 2
+    image = searches.thumbnail(video_id, window)
+    return pixels(image) if image else Text("No preview for this moment.", FAINT)
+
+
+@dataclass
+class Snapshot:
+    """Everything the screens show, read together from the stores."""
+
+    videos: list[VideoRecord] = field(default_factory=list)  # Newest first.
+    ready: set[UUID] = field(default_factory=set)
+    jobs: list[JobRecord] = field(default_factory=list)  # Oldest first.
+
+    def video(self, video_id: UUID) -> VideoRecord | None:
+        return next((video for video in self.videos if video.id == video_id), None)
+
+    def job(self, job_id: str) -> JobRecord:
+        return next(job for job in self.jobs if str(job.id) == job_id)
+
+    def latest(self, video_id: UUID, kind: str) -> JobRecord | None:
+        matches = [
+            job
+            for job in self.jobs
+            if job.video_id == video_id and job.operation.type == kind
+        ]
+        return matches[-1] if matches else None
+
+    def state(self, video: VideoRecord) -> tuple[str, JobRecord | None]:
+        job = self.latest(video.id, "index")
+        if job is not None and job.status in ("queued", "running"):
+            return "indexing", job
+        if video.id in self.ready:
+            return "ready", job
+        if job is not None and job.status == "failed":
+            return "failed", job
+        return "uploaded", None
+
+    def active(self) -> list[JobRecord]:
+        return [job for job in self.jobs if job.status in ("queued", "running")]
+
+    def failed(self) -> list[JobRecord]:
+        latest = {(job.video_id, job.operation.type): job for job in self.jobs}
+        return [job for job in latest.values() if job.status == "failed"]
+
+    def finished(self) -> list[JobRecord]:
+        done = [job for job in self.jobs if job.status == "succeeded"]
+        return sorted(done, key=lambda job: job.finished_at or job.created_at)[::-1]
+
+
+@dataclass
+class Failure:
+    """A failed add. It has no job record, so the app keeps it for the session."""
+
+    name: str
+    summary: str
+    diagnostics: str
+
+
+GLYPHS = {
+    "ready": ("●", TEXT),
+    "uploaded": ("○", FAINT),
+    "indexing": ("◐", TEXT),
+    "failed": ("✕", ERROR),
+}
+
+
+class KeyBar(Static):
+    """Status on the left, the keys that work right now on the right."""
+
+    def show(self, message: Text, pairs: list[tuple[str, str]]) -> None:
+        room = self.size.width - message.cell_len - 3
+        while len(pairs) > 1 and keys(pairs).cell_len > room:
+            pairs = pairs[:-2] + pairs[-1:]  # The last key is the way out; keep it.
+        grid = Table.grid(expand=True)
+        grid.add_column()
+        grid.add_column(justify="right")
+        grid.add_row(message, keys(pairs))
+        self.update(grid)
+
+
+class Choice(Static, can_focus=True):
+    """A labelled on/off choice: space or a click toggles it."""
+
+    BINDINGS = [Binding("space", "flip", show=False)]
+    value = reactive(True)
+
+    def __init__(self, label: str, value: bool, disabled: bool) -> None:
+        super().__init__(disabled=disabled)
+        self.label = label
+        self.value = value
+
+    def render(self) -> Text:
+        mark = "[✓]" if self.value else "[ ]"
+        style = FAINT if self.disabled else TEXT
+        return Text.assemble((mark, style), "  ", (self.label, style))
+
+    def action_flip(self) -> None:
+        self.value = not self.value
+
+    def on_click(self) -> None:
+        self.action_flip()
+
+
+class PathCompleter(Suggester):
+    """Ghost-text completion for file paths."""
 
     def __init__(self) -> None:
         super().__init__(use_cache=False, case_sensitive=True)
 
     async def get_suggestion(self, value: str) -> str | None:
-        if not value.startswith("/"):
+        if not value:
             return None
-        command, space, rest = value.partition(" ")
-        if not space:
-            for name, _, _ in SLASH:
-                if name.startswith(command) and name != command:
-                    return name + " "
-            return None
-        token = rest.rsplit(" ", 1)[-1]
-        if command == "/mode":
-            return next(
-                (
-                    value + mode[len(token) :]
-                    for mode in MODES
-                    if mode.startswith(token)
-                ),
-                None,
-            )
-        if command not in PATH_COMMANDS or not token:
-            return None
-        base = Path(token).expanduser()
-        folder, prefix = (base, "") if token.endswith("/") else (base.parent, base.name)
+        base = Path(value).expanduser()
+        folder, prefix = (base, "") if value.endswith("/") else (base.parent, base.name)
         try:
             entries = sorted(
                 entry
@@ -182,645 +330,1201 @@ class Completer(Suggester):
         return value + name[len(prefix) :]
 
 
-class Moments(OptionList, can_focus=False):
-    pass
-
-
-class Results(Horizontal):
-    """Search matches with a live preview of the highlighted moment."""
-
-    def __init__(self, hits: list[SearchHit], thumbnails: list[bytes | None]) -> None:
-        super().__init__(classes="results")
-        self.hits = hits
-        self.thumbnails = thumbnails
-        self._previews: dict[int, Text] = {}
-
-    def compose(self) -> ComposeResult:
-        spans = [span(hit) for hit in self.hits]
-        names = [
-            term.clip(hit.filename or str(hit.video_id)[:8], 28) for hit in self.hits
-        ]
-        span_size = max(map(len, spans)) + 3
-        name_size = max(map(len, names)) + 3
-        options = []
-        for hit, when, name in zip(self.hits, spans, names, strict=True):
-            options.append(
-                Option(
-                    Text.assemble(
-                        (term.pad(when, span_size), TEXT),
-                        (term.pad(name, name_size), MUTED),
-                        (term.pad(hit.modality, 10), FAINT),
-                        (term.score(hit.score), FAINT),
-                    )
-                )
-            )
-        yield Moments(*options, compact=True)
-        yield Static(classes="preview")
-
-    def on_mount(self) -> None:
-        self.query_one(Moments).highlighted = 0
+class View(Screen):
+    """A screen that redraws from the latest snapshot."""
 
     @property
-    def selected(self) -> SearchHit | None:
-        index = self.query_one(Moments).highlighted
-        return self.hits[index] if index is not None else None
+    def pipeline(self) -> "Pipeline":
+        return cast(Pipeline, self.app)
 
-    def move(self, delta: int) -> None:
-        moments = self.query_one(Moments)
-        current = moments.highlighted or 0
-        moments.highlighted = max(0, min(len(self.hits) - 1, current + delta))
+    def keys(self) -> list[tuple[str, str]]:
+        return []
 
-    def retire(self) -> None:
-        self.add_class("-stale")
-        self.query_one(Moments).disabled = True
+    def crumb(self) -> str:
+        """How this screen is named in the breadcrumb of screens opened from it."""
+        return ""
+
+    def update_view(self) -> None:
+        self.set_class(self.size.width < 100, "-narrow")
+        self.query_one(KeyBar).show(self.pipeline.message(), self.keys())
+
+    def on_resize(self, event: events.Resize) -> None:
+        self.update_view()
+
+    def on_descendant_focus(self, event: events.DescendantFocus) -> None:
+        self.update_view()
+
+
+class Library(View):
+    PAGE = 20
+    BINDINGS = [
+        Binding("a", "add"),
+        Binding("slash", "search"),
+        Binding("exclamation_mark", "activity"),
+        Binding("escape", "leave_search", show=False),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.shown = self.PAGE
+        self.select: str | None = None
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(classes="header"):
+            yield Static(Text("Library", STRONG), classes="title")
+            yield Static(classes="summary")
+        with Horizontal(classes="field"):
+            yield Static("⌕", classes="glyph")
+            yield Input(compact=True, id="query")
+        yield OptionList(compact=True, classes="rows")
+        yield Static(
+            Text.assemble(
+                ("No videos yet\n\n", MUTED), ("a", TEXT), ("  Add video", STRONG)
+            ),
+            classes="empty",
+        )
+        yield KeyBar()
+
+    def on_mount(self) -> None:
+        self.query_one(".rows").focus()
+
+    def on_screen_resume(self) -> None:
+        self.query_one(".rows").focus()
+
+    def crumb(self) -> str:
+        return "Library"
+
+    def keys(self) -> list[tuple[str, str]]:
+        if self.focused is self.query_one("#query"):
+            return [("⏎", "search"), ("esc", "cancel")]
+        return [("a", "add"), ("/", "search"), ("⏎", "open"), ("!", "activity")]
+
+    def row(self, icon: Text, name: str, length: str, state: Text) -> Text:
+        wide = self.size.width >= 80
+        length_width = 12 if wide else 0
+        name_width = min(
+            44, max(12, self.size.width - 12 - length_width - (17 if wide else 13))
+        )
+        return Text.assemble(
+            icon,
+            " ",
+            (term.pad(term.middle(name, name_width), name_width + 2), TEXT),
+            (term.pad(length, length_width) if wide else "", MUTED),
+            state,
+        )
+
+    def update_view(self) -> None:
+        app = self.pipeline
+        snapshot = app.snapshot
+        cells = 10 if self.size.width >= 80 else 6
+        options = [
+            Option(
+                self.row(
+                    Text("◌", FAINT), name, "", progress(None, app.frame, cells, False)
+                ),
+                id=f"adding:{path}",
+            )
+            for path, name in app.adding.items()
+        ]
+        for video in snapshot.videos[: self.shown]:
+            state, job = snapshot.state(video)
+            glyph, glyph_style = GLYPHS[state]
+            label = (
+                progress(job, app.frame, cells, False)
+                if state == "indexing"
+                else Text("")
+            )
+            length = (
+                term.timecode(video.duration_seconds)
+                if video.duration_seconds is not None
+                else "–"
+            )
+            name = video.filename or "untitled"
+            options.append(
+                Option(
+                    self.row(Text(glyph, glyph_style), name, length, label),
+                    id=str(video.id),
+                )
+            )
+        remaining = len(snapshot.videos) - self.shown
+        if remaining > 0:
+            more = f"{min(self.PAGE, remaining)} more"
+            options.append(
+                Option(Text.assemble(("  Load ", FAINT), (more, TEXT)), id="more")
+            )
+        rows = self.query_one(".rows", OptionList)
+        fill(rows, options)
+        ids = [option.id for option in options]
+        if self.select in ids:
+            rows.highlighted = ids.index(self.select)
+            self.select = None
+
+        self.query_one(".title", Static).update(
+            Text.assemble(("Library", STRONG), (f"  {len(snapshot.videos):,}", FAINT))
+        )
+        running = sum(1 for job in snapshot.active() if job.operation.type == "index")
+        failed = len(snapshot.failed()) + len(app.failures)
+        summary = Text()
+        for amount, state in ((running, "indexing"), (failed, "failed")):
+            if amount:
+                glyph, style = GLYPHS[state]
+                summary.append(f"   {glyph} {amount:,}", style)
+        if app.offline:
+            summary.append("   job service offline", ERROR)
+        self.query_one(".summary", Static).update(summary)
+        self.set_class(not options, "-empty")
+        super().update_view()
+
+    def action_add(self) -> None:
+        def chosen(result: tuple[Path, bool] | None) -> None:
+            if result is not None:
+                self.pipeline.add(*result)
+
+        self.pipeline.push_screen(AddSheet(self.pipeline.jobs is not None), chosen)
+
+    def action_search(self) -> None:
+        self.query_one("#query").focus()
+
+    def action_leave_search(self) -> None:
+        self.query_one("#query", Input).clear()
+        self.query_one(".rows").focus()
+
+    def action_activity(self) -> None:
+        self.pipeline.push_screen(Activity())
+
+    @on(Input.Changed, "#query")
+    def typing(self, event: Input.Changed) -> None:
+        if (
+            event.value
+            and not event.value.startswith("/")
+            and self.pipeline.snapshot.ready
+        ):
+            self.pipeline.warm()
+
+    @on(Input.Submitted, "#query")
+    def submitted(self, event: Input.Submitted) -> None:
+        query = event.value.strip()
+        self.action_leave_search()
+        if query == "/add":
+            self.action_add()
+        elif query == "/activity":
+            self.action_activity()
+        elif query and query != "/videos":
+            self.pipeline.push_screen(Results(query))
+
+    @on(OptionList.OptionSelected, ".rows")
+    def selected(self, event: OptionList.OptionSelected) -> None:
+        key = event.option.id or ""
+        if key == "more":
+            self.shown += self.PAGE
+            self.update_view()
+        elif not key.startswith("adding:"):
+            self.pipeline.push_screen(VideoScreen(UUID(key)))
+
+
+class VideoScreen(View):
+    BINDINGS = [
+        Binding("p", "play"),
+        Binding("v", "play_video"),
+        Binding("i", "index"),
+        Binding("r", "resize"),
+        Binding("c", "clip"),
+        Binding("d", "details"),
+        Binding("y", "copy"),
+        Binding("escape", "app.pop_screen"),
+    ]
+
+    def __init__(self, video_id: UUID, moment: SearchHit | None = None) -> None:
+        super().__init__()
+        self.video_id = video_id
+        self.moment = moment
+        self.preview: Text | None = None
+        self.came_from = ""
+
+    def on_mount(self) -> None:
+        below = self.app.screen_stack[-2]
+        self.came_from = below.crumb() if isinstance(below, View) else "Library"
+        self.update_view()
+
+    @property
+    def video(self) -> VideoRecord:
+        video = self.pipeline.snapshot.video(self.video_id)
+        assert video is not None
+        return video
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(classes="header"):
+            yield Static(classes="title")
+        with Horizontal(classes="hero"):
+            yield Static(classes="preview")
+            with Vertical(classes="about"):
+                yield Static(classes="status")
+                yield Static(classes="facts")
+                yield Static(classes="moment")
+        yield Static(classes="progress")
+        yield Static(Text("Outputs", FAINT), classes="label")
+        yield OptionList(compact=True, classes="rows outputs")
+        with VerticalScroll(classes="details"):
+            yield Static(classes="technical")
+        yield KeyBar()
+
+    def keys(self) -> list[tuple[str, str]]:
+        state, _ = self.pipeline.snapshot.state(self.video)
+        pairs = [("⏎", "open")] if self.focused is self.query_one(".outputs") else []
+        pairs.append(("p", "play moment" if self.moment else "play"))
+        if self.moment:
+            pairs.append(("v", "play video"))
+        if state in ("uploaded", "failed"):
+            pairs.append(("i", "make searchable" if state == "uploaded" else "retry"))
+        pairs += [("r", "resize"), ("c", "clip"), ("d", "details")]
+        if self.has_class("-details") and state == "failed":
+            pairs.append(("y", "copy error"))
+        return [*pairs, ("esc", "back")]
+
+    def update_view(self) -> None:
+        app = self.pipeline
+        snapshot = app.snapshot
+        video = self.video
+        state, job = snapshot.state(video)
+        self.query_one(".title", Static).update(
+            Text.assemble(
+                (f"{self.came_from}  ›  ", FAINT),
+                (video.filename or "untitled", STRONG),
+            )
+        )
+
+        if state == "ready":
+            status = Text("Ready to search", TEXT)
+        elif state == "uploaded":
+            status = Text("Not searchable yet", MUTED)
+        elif state == "failed" and job is not None:
+            status = Text(term.clip(FAILURES[job.operation.type], 36), ERROR)
+        else:
+            status = progress(job, app.frame, 16)
+        self.query_one(".status", Static).update(status)
+
+        parts = [
+            term.timecode(video.duration_seconds)
+            if video.duration_seconds is not None
+            else "unknown length"
+        ]
+        if video.video_streams:
+            stream = video.video_streams[0]
+            parts.append(f"{stream.width}×{stream.height}")
+        original = app.videos.original_path(video.id)
+        parts.append(term.filesize(original.stat().st_size))
+        self.query_one(".facts", Static).update(Text(" · ".join(parts), MUTED))
+
+        if self.moment is not None:
+            self.query_one(".moment", Static).update(
+                Text.assemble(("\nmoment  ", FAINT), (span(self.moment), STRONG))
+            )
+
+        if self.preview is None and state == "ready":
+            window = self.moment.window if self.moment else None
+            self.preview = preview(app.searches, video.id, window)
+        self.query_one(".preview", Static).update(
+            self.preview or Text(NO_PREVIEW, FAINT)
+        )
+
+        running = [  # Indexing shows in the status line.
+            job
+            for job in snapshot.active()
+            if job.video_id == video.id
+            and not isinstance(job.operation, IndexOperation)
+        ]
+        lines = Text()
+        for index, active in enumerate(running):
+            lines.append("\n" if index else "")
+            lines.append(term.pad(describe(active.operation), 22), TEXT)
+            lines.append_text(progress(active, app.frame, 20))
+        self.query_one(".progress", Static).update(lines)
+        self.query_one(".progress").display = bool(running)
+
+        outputs = [
+            done
+            for done in snapshot.finished()[::-1]
+            if done.video_id == video.id
+            and done.output is not None
+            and not isinstance(done.operation, IndexOperation)
+        ]
+        fill(
+            self.query_one(".outputs", OptionList),
+            [
+                Option(
+                    Text.assemble(
+                        (term.pad(describe(done.operation), 22), TEXT),
+                        (ago(done.finished_at or done.created_at), FAINT),
+                    ),
+                    id=str(done.id),
+                )
+                for done in outputs
+            ],
+        )
+        for selector in (".label", ".outputs"):
+            self.query_one(selector).display = bool(outputs)
+        if outputs and self.focused is None:
+            self.query_one(".outputs").focus()
+        elif not outputs and self.focused is not None:
+            self.set_focus(None)
+
+        if self.has_class("-details"):
+            self.query_one(".technical", Static).update(self.technical(state, job))
+        super().update_view()
+
+    def technical(self, state: str, job: JobRecord | None) -> Text:
+        video = self.video
+        rows = [
+            ("file", [video.filename or "untitled"]),
+            ("id", [str(video.id)]),
+            ("added", [f"{video.created_at:%Y-%m-%d %H:%M} UTC"]),
+            *term.facts(video),
+        ]
+        if video.format_name:
+            rows.append(("format", [video.format_name]))
+        record = self.pipeline.searches.get(video.id)
+        if record is not None:
+            window = f"{record.settings.window_seconds:g}s"
+            stride = f"every {record.settings.stride_seconds:g}s"
+            rows += [
+                ("index", [term.count(record.windows, "window")]),
+                ("windows", [window, stride]),
+                ("indexed", [f"{record.indexed_at:%Y-%m-%d %H:%M} UTC"]),
+                ("model", [str(record.profile["model"])]),
+            ]
+        for done in self.pipeline.snapshot.finished()[::-1]:
+            if done.video_id == video.id and done.output is not None:
+                if not isinstance(done.operation, IndexOperation):
+                    rows.append(
+                        (describe(done.operation), [shown(self.pipeline.output(done))])
+                    )
+        size = max(len(label) for label, _ in rows) + 3
+        text = Text()
+        for label, parts in rows:
+            text.append(term.pad(label, size), FAINT)
+            text.append(" · ".join(parts) + "\n" if parts else "none\n", MUTED)
+        if state == "failed" and job is not None:
+            text.append("\nerror\n", FAINT)
+            text.append(redact(job.error or "No details were recorded."), MUTED)
+        text.rstrip()
+        return text
+
+    def action_play(self) -> None:
+        if self.moment is None:
+            self.action_play_video()
+            return
+        path = self.pipeline.videos.original_path(self.video_id)
+        moment = self.moment
+        self.pipeline.play(path, moment.start_seconds, moment.end_seconds, span(moment))
+
+    def action_play_video(self) -> None:
+        path = self.pipeline.videos.original_path(self.video_id)
+        self.pipeline.play(path, label=self.video.filename or "video")
+
+    def action_index(self) -> None:
+        if self.pipeline.snapshot.state(self.video)[0] in ("uploaded", "failed"):
+            self.pipeline.submit(self.video, IndexOperation(type="index"))
+
+    def action_resize(self) -> None:
+        def chosen(height: str | None) -> None:
+            if height is None:
+                return
+            try:
+                operation = TranscodeOperation(type="transcode", height=int(height))
+            except (ValueError, ValidationError):
+                message = "Height must be an even number of pixels."
+                self.pipeline.notice(Text(message, ERROR), 4)
+                return
+            self.pipeline.submit(self.video, operation)
+
+        self.pipeline.push_screen(Ask("Resize", "height in pixels", "720"), chosen)
+
+    def action_clip(self) -> None:
+        def chosen(text: str | None) -> None:
+            if text is None:
+                return
+            try:
+                start, end = (seconds(part) for part in re.split("[–-]", text, 1))
+                operation = ClipOperation(
+                    type="clip", start_seconds=start, end_seconds=end
+                )
+            except (ValueError, ValidationError):
+                self.pipeline.notice(Text("Enter a range like 0:42 – 0:50.", ERROR), 4)
+                return
+            self.pipeline.submit(self.video, operation)
+
+        moment = span(self.moment) if self.moment else ""
+        self.pipeline.push_screen(Ask("Save clip", "start – end", moment), chosen)
+
+    def action_details(self) -> None:
+        self.toggle_class("-details")
+        self.update_view()
+
+    def action_copy(self) -> None:
+        state, job = self.pipeline.snapshot.state(self.video)
+        if self.has_class("-details") and state == "failed" and job is not None:
+            self.pipeline.copy_error(job.error or "")
+
+    @on(OptionList.OptionSelected, ".outputs")
+    def open_output(self, event: OptionList.OptionSelected) -> None:
+        job = self.pipeline.snapshot.job(event.option.id or "")
+        self.pipeline.play(self.pipeline.output(job), label=describe(job.operation))
+
+
+class Results(View):
+    BINDINGS = [
+        Binding("right", "open_moment"),
+        Binding("slash", "edit"),
+        Binding("d", "details"),
+        Binding("escape", "back"),
+    ]
+
+    def __init__(self, query: str) -> None:
+        super().__init__()
+        self.query_text = query
+        self.names: list[VideoRecord] = []
+        self.hits: list[SearchHit] = []
+        self.thumbnails: list[bytes | None] = []
+        self.problem: tuple[str, str] | None = None
+        self.searching = True
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(classes="field"):
+            yield Static("⌕", classes="glyph")
+            yield Input(self.query_text, compact=True, id="query")
+        with Horizontal(classes="body"):
+            yield OptionList(compact=True, classes="rows")
+            yield Static(classes="preview")
+        yield KeyBar()
+
+    def on_mount(self) -> None:
+        self.query_one(".rows").focus()
+        self.run_search()
+
+    def run_search(self) -> None:
+        needle = self.query_text.casefold()
+        self.names = [
+            video
+            for video in self.pipeline.snapshot.videos
+            if needle in (video.filename or "").casefold()
+        ][:5]
+        self.hits, self.thumbnails, self.problem = [], [], None
+        self.searching = True
+        self.update_view()
+        self.search()
+
+    @work(thread=True, exclusive=True)
+    def search(self) -> None:
+        app = self.pipeline
+        app.call_from_thread(app.working, id(self), "searching")
+        try:
+            response = app.searches.search(
+                SearchRequest(query=self.query_text, limit=12), app.text_embedder()
+            )
+            thumbnails = [
+                app.searches.thumbnail(hit.video_id, hit.window)
+                for hit in response.matches
+            ]
+            app.call_from_thread(self.show, response.matches, thumbnails, None)
+        except (OSError, ValueError) as error:
+            summary = "Search isn't available right now."
+            if isinstance(error, ValueError) and "Reindex" in str(error):
+                summary = (
+                    "These videos need indexing again before they can be searched."
+                )
+            app.call_from_thread(self.show, [], [], (summary, explain(error)))
+        finally:
+            app.call_from_thread(app.done, id(self))
+
+    def show(
+        self,
+        hits: list[SearchHit],
+        thumbnails: list[bytes | None],
+        problem: tuple[str, str] | None,
+    ) -> None:
+        self.hits, self.thumbnails, self.problem = hits, thumbnails, problem
+        self.searching = False
+        self.update_view()
+
+    def selected(self) -> tuple[str, int] | None:
+        option = self.query_one(".rows", OptionList).highlighted_option
+        if option is None or option.id is None:
+            return None
+        kind, index = option.id.split(":")
+        return kind, int(index)
+
+    def keys(self) -> list[tuple[str, str]]:
+        if self.focused is self.query_one("#query"):
+            return [("⏎", "search"), ("esc", "results")]
+        choice = self.selected()
+        if choice and choice[0] == "moment":
+            return [("⏎", "play"), ("→", "open video"), ("/", "edit"), ("esc", "back")]
+        if self.problem:
+            return [("d", "details"), ("/", "edit"), ("esc", "back")]
+        return [("⏎", "open"), ("/", "edit"), ("esc", "back")]
+
+    def update_view(self) -> None:
+        snapshot = self.pipeline.snapshot
+        width = self.size.width - (10 if self.has_class("-narrow") else 52)
+        options: list[Option] = []
+        if self.names:
+            options.append(Option(Text("Videos", FAINT), disabled=True))
+            for index, video in enumerate(self.names):
+                glyph, glyph_style = GLYPHS[snapshot.state(video)[0]]
+                name = term.middle(video.filename or "untitled", width - 2)
+                options.append(
+                    Option(
+                        Text.assemble((glyph + " ", glyph_style), (name, TEXT)),
+                        id=f"video:{index}",
+                    )
+                )
+        options.append(Option(Text("Moments", FAINT), disabled=True))
+        if self.searching:
+            options.append(Option(Text("searching…", FAINT), disabled=True))
+        elif self.problem:
+            options.append(Option(Text(self.problem[0], ERROR), disabled=True))
+        elif not self.hits:
+            message = (
+                "No matching moments."
+                if snapshot.ready
+                else "Nothing is searchable yet. Videos become searchable once indexed."
+            )
+            options.append(Option(Text(message, FAINT), disabled=True))
+        starts = [term.timecode(hit.start_seconds) for hit in self.hits]
+        ends = [term.timecode(hit.end_seconds) for hit in self.hits]
+        start_width = max(map(len, starts), default=0)
+        span_width = start_width + max(map(len, ends), default=0) + 6
+        wide = width >= 70
+        name_width = width - span_width - (17 if wide else 0)
+        for index, hit in enumerate(self.hits):
+            name = term.middle(hit.filename or "untitled", name_width)
+            when = f"{starts[index]:>{start_width}} – {ends[index]}"
+            row = Text.assemble(
+                (term.pad(when, span_width), TEXT),
+                (term.pad(name, name_width + 2), MUTED),
+            )
+            if wide:
+                row.append(term.pad(hit.modality, 10), FAINT)
+                row.append(f"{term.score(hit.score):>5}", FAINT)
+            options.append(Option(row, id=f"moment:{index}"))
+        fill(self.query_one(".rows", OptionList), options)
+        self.show_preview()
+        super().update_view()
+
+    def show_preview(self) -> None:
+        choice = self.selected()
+        image = Text("")
+        if choice and choice[0] == "moment":
+            hit = self.hits[choice[1]]
+            image = preview(self.pipeline.searches, hit.video_id, hit.window)
+        elif choice and choice[0] == "video":
+            image = preview(self.pipeline.searches, self.names[choice[1]].id, None)
+        self.query_one(".preview", Static).update(image)
+
+    @on(OptionList.OptionHighlighted, ".rows")
+    def highlighted(self) -> None:
+        self.show_preview()
+        super().update_view()
+
+    @on(OptionList.OptionSelected, ".rows")
+    def chosen(self) -> None:
+        choice = self.selected()
+        if choice is None:
+            return
+        kind, index = choice
+        if kind == "video":
+            self.pipeline.push_screen(VideoScreen(self.names[index].id))
+            return
+        hit = self.hits[index]
+        path = self.pipeline.videos.original_path(hit.video_id)
+        self.pipeline.play(path, hit.start_seconds, hit.end_seconds, span(hit))
+
+    def action_open_moment(self) -> None:
+        choice = self.selected()
+        if choice and choice[0] == "moment":
+            hit = self.hits[choice[1]]
+            self.pipeline.push_screen(VideoScreen(hit.video_id, hit))
+
+    def crumb(self) -> str:
+        return f"⌕ {term.clip(self.query_text, 32)}"
+
+    def action_edit(self) -> None:
+        self.query_one("#query").focus()
+
+    def action_details(self) -> None:
+        if self.problem:
+            self.pipeline.push_screen(ErrorSheet(*self.problem))
+
+    def action_back(self) -> None:
+        if self.focused is self.query_one("#query"):
+            self.query_one(".rows").focus()
+        else:
+            self.pipeline.pop_screen()
+
+    @on(Input.Submitted, "#query")
+    def submitted(self, event: Input.Submitted) -> None:
+        query = event.value.strip()
+        self.query_one(".rows").focus()
+        if query and query != self.query_text:
+            self.query_text = query
+            self.run_search()
+
+
+class Activity(ModalScreen[None]):
+    """Running, failed and recently finished work, over any screen."""
+
+    BINDINGS = [
+        Binding("escape,exclamation_mark", "dismiss", show=False),
+        Binding("d", "details"),
+        Binding("y", "copy"),
+    ]
+
+    @property
+    def pipeline(self) -> "Pipeline":
+        return cast(Pipeline, self.app)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="panel"):
+            yield Static(Text("Activity", STRONG), classes="title")
+            yield Static(classes="service")
+            yield OptionList(compact=True, classes="rows")
+            yield KeyBar()
+
+    def on_mount(self) -> None:
+        self.query_one(".rows").focus()
+        self.update_view()
+
+    def failure(self) -> tuple[str, str] | None:
+        option = self.query_one(".rows", OptionList).highlighted_option
+        if option is None or option.id is None:
+            return None
+        kind, _, value = option.id.partition(":")
+        if kind == "add":
+            failed = self.pipeline.failures[int(value)]
+            return failed.summary, failed.diagnostics
+        job = self.pipeline.snapshot.job(value)
+        if job.status != "failed":
+            return None
+        return FAILURES[job.operation.type], job.error or "No details were recorded."
+
+    def update_view(self) -> None:
+        app = self.pipeline
+        snapshot = app.snapshot
+        service = Text()
+        if app.offline:
+            service.append(f"{app.offline}\n", ERROR)
+            service.append("Start it with ", FAINT)
+            service.append(START_SERVICE, TEXT)
+        self.query_one(".service", Static).update(service)
+        self.query_one(".service").display = bool(app.offline)
+
+        def name(job: JobRecord) -> str:
+            video = snapshot.video(job.video_id)
+            filename = video.filename if video and video.filename else "untitled"
+            return term.pad(term.middle(filename, 24), 26)
+
+        failures = [
+            Option(
+                Text.assemble(
+                    (term.pad(term.middle(failed.name, 24), 26), TEXT),
+                    (term.clip(failed.summary, 36), ERROR),
+                ),
+                id=f"add:{index}",
+            )
+            for index, failed in enumerate(app.failures)
+        ]
+        running = [
+            Option(
+                Text(name(job), TEXT) + progress(job, app.frame, 10), id=f"job:{job.id}"
+            )
+            for job in snapshot.active()
+        ]
+        failed = failures + [
+            Option(
+                Text.assemble(
+                    (name(job), TEXT),
+                    (term.clip(FAILURES[job.operation.type], 36), ERROR),
+                ),
+                id=f"job:{job.id}",
+            )
+            for job in snapshot.failed()
+        ]
+        done = [
+            Option(
+                Text.assemble(
+                    (name(job), TEXT),
+                    (term.pad(describe(job.operation), 18), MUTED),
+                    (ago(job.finished_at or job.created_at), FAINT),
+                ),
+                id=f"job:{job.id}",
+            )
+            for job in snapshot.finished()[:5]
+        ]
+        options: list[Option] = []
+        for title, section in (
+            ("Running", running),
+            ("Failed", failed),
+            ("Done", done),
+        ):
+            if section:
+                if options:
+                    options.append(Option(Text(""), disabled=True))
+                options += [Option(Text(title, FAINT), disabled=True), *section]
+        if not options:
+            options.append(Option(Text("Nothing running.", FAINT), disabled=True))
+        fill(self.query_one(".rows", OptionList), options)
+
+        pairs = [("⏎", "open")]
+        if self.failure():
+            pairs += [("d", "details"), ("y", "copy error")]
+        self.query_one(KeyBar).show(app.message(), [*pairs, ("esc", "close")])
 
     @on(OptionList.OptionHighlighted)
-    def preview(self, event: OptionList.OptionHighlighted) -> None:
-        index = event.option_index
-        if index not in self._previews:
-            image = self.thumbnails[index]
-            self._previews[index] = pixels(image) if image else Text("")
-        self.query_one(".preview", Static).update(self._previews[index])
+    def highlighted(self) -> None:
+        self.update_view()
 
     @on(OptionList.OptionSelected)
-    def play(self, event: OptionList.OptionSelected) -> None:
-        event.stop()
-        app = self.app
-        if isinstance(app, Pipeline):
-            app.play(self.hits[event.option_index])
+    def chosen(self, event: OptionList.OptionSelected) -> None:
+        kind, _, value = (event.option.id or "").partition(":")
+        if kind == "add":
+            self.action_details()
+            return
+        video_id = self.pipeline.snapshot.job(value).video_id
+        self.dismiss()
+        self.pipeline.push_screen(VideoScreen(video_id))
+
+    def action_details(self) -> None:
+        failure = self.failure()
+        if failure:
+            self.pipeline.push_screen(ErrorSheet(*failure))
+
+    def action_copy(self) -> None:
+        failure = self.failure()
+        if failure:
+            self.pipeline.copy_error(failure[1])
+
+
+class AddSheet(ModalScreen[tuple[Path, bool] | None]):
+    BINDINGS = [Binding("escape", "dismiss(None)", show=False)]
+
+    def __init__(self, can_index: bool) -> None:
+        super().__init__()
+        self.can_index = can_index
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="sheet"):
+            yield Static(Text("Add video", STRONG), classes="title")
+            with Horizontal(classes="field"):
+                yield Input(
+                    placeholder="path to a video file",
+                    suggester=PathCompleter(),
+                    compact=True,
+                )
+            yield Choice(
+                "Make searchable", value=self.can_index, disabled=not self.can_index
+            )
+            if not self.can_index:
+                message = "Start the job service to make videos searchable."
+                yield Static(Text(message, FAINT))
+            yield Static(classes="problem")
+            yield Static(
+                keys(
+                    [
+                        ("→", "complete"),
+                        ("⏎", "add"),
+                        ("esc", "cancel"),
+                    ]
+                ),
+                classes="hint",
+            )
+
+    @on(Input.Submitted)
+    def submitted(self, event: Input.Submitted) -> None:
+        path = Path(event.value.strip()).expanduser()
+        if not path.is_file():
+            self.query_one(".problem", Static).update(
+                Text("No video file at that path.", ERROR)
+            )
+            return
+        self.dismiss((path, self.query_one(Choice).value))
+
+
+class Ask(ModalScreen[str | None]):
+    """One question with a typed answer."""
+
+    BINDINGS = [Binding("escape", "dismiss(None)", show=False)]
+
+    def __init__(self, title: str, placeholder: str, value: str) -> None:
+        super().__init__()
+        self.heading, self.placeholder, self.value = title, placeholder, value
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="sheet"):
+            yield Static(Text(self.heading, STRONG), classes="title")
+            with Horizontal(classes="field"):
+                yield Input(self.value, placeholder=self.placeholder, compact=True)
+            yield Static(keys([("⏎", "start"), ("esc", "cancel")]), classes="hint")
+
+    @on(Input.Submitted)
+    def submitted(self, event: Input.Submitted) -> None:
+        self.dismiss(event.value)
+
+
+class ErrorSheet(ModalScreen[None]):
+    """A short explanation, with the full diagnostics underneath."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", show=False),
+        Binding("y", "copy"),
+    ]
+
+    def __init__(self, summary: str, diagnostics: str) -> None:
+        super().__init__()
+        self.summary, self.diagnostics = summary, redact(diagnostics)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="sheet wide"):
+            yield Static(Text(self.summary, STRONG), classes="title")
+            with VerticalScroll(classes="diagnostics"):
+                yield Static(Text(self.diagnostics, MUTED))
+            yield Static(keys([("y", "copy error"), ("esc", "close")]), classes="hint")
+
+    def action_copy(self) -> None:
+        cast(Pipeline, self.app).copy_error(self.diagnostics)
 
 
 class Pipeline(App[None]):
     TITLE = "video pipeline"
     ENABLE_COMMAND_PALETTE = False
     CSS = """
-    Screen { background: #0b0b0b; color: #d0d0d0; }
-    #log { height: 1fr; padding: 1 3 0 3; scrollbar-size-vertical: 0; }
-    #welcome { margin: 1 0 2 0; }
-    .turn { height: auto; margin: 0 0 1 0; }
-    .echo { margin: 0 0 1 0; }
-    .body { height: auto; padding: 0 0 0 2; }
-    .results { height: auto; }
-    .results Moments {
-        width: auto; max-width: 1fr; background: #0b0b0b; padding: 0;
-        & > .option-list--option { padding: 0 1; }
-        & > .option-list--option-highlighted { background: #1a1a1a; text-style: none; }
-        & > .option-list--option-hover { background: #141414; }
-    }
-    .results .preview { width: 40; height: auto; padding: 0 0 0 3; }
-    .results.-stale { opacity: 45%; }
-    Screen.-narrow .results .preview { display: none; }
-    .results.-stale .preview { display: none; }
-    .results.-stale Moments > .option-list--option-highlighted { background: #0b0b0b; }
-    #menu {
-        display: none; width: auto; height: auto; max-height: 9;
-        margin: 1 3 0 3; padding: 0; background: #0b0b0b;
-        & > .option-list--option { padding: 0 1; }
-        & > .option-list--option-highlighted { background: #1a1a1a; text-style: none; }
-    }
-    #menu.-open { display: block; }
-    #prompt {
-        height: 3; margin: 0 2; padding: 0 1;
+    Screen { background: #0b0b0b; color: #d0d0d0; padding: 1 3 0 3; }
+    .header { height: 1; margin: 0 0 1 0; }
+    .header .title { width: 1fr; }
+    .header .summary { width: auto; }
+    .field {
+        height: 3; padding: 0 1; margin: 0 0 1 0;
         border: round #3a3a3a; background: #0b0b0b;
     }
-    #prompt:focus-within { border: round #767676; }
-    #caret { width: 2; color: #808080; }
-    #input {
+    .field:focus-within { border: round #767676; }
+    .glyph { width: 2; color: #808080; }
+    Input {
         background: #0b0b0b; color: #eeeeee; padding: 0;
         &:focus { background-tint: #0b0b0b 0%; }
         & > .input--placeholder, & > .input--suggestion { color: #808080; }
         & > .input--cursor { background: #eeeeee; color: #0b0b0b; }
     }
-    #state { height: 1; margin: 0 4 1 4; }
+    OptionList.rows {
+        height: 1fr; background: #0b0b0b; padding: 0;
+        & > .option-list--option { padding: 0 1; }
+        & > .option-list--option-highlighted {
+            background: #161616; text-style: none;
+        }
+        &:focus { background-tint: #000000 0%; }
+        &:focus > .option-list--option-highlighted { background: #222222; }
+        & > .option-list--option-hover { background: #141414; }
+    }
+    KeyBar { dock: bottom; height: 1; margin: 1 0; }
+    .empty { display: none; padding: 2 1; }
+    Library.-empty .empty { display: block; }
+    Library.-empty .rows { display: none; }
+
+    .hero { height: auto; margin: 0 0 1 0; }
+    .preview {
+        width: 38; height: 12; border: round #262626;
+        content-align: center middle; text-align: center;
+    }
+    .about { width: 1fr; height: auto; padding: 0 0 0 2; }
+    VideoScreen.-narrow .hero .preview { display: none; }
+    VideoScreen.-narrow .about { padding: 0; }
+    .progress { height: auto; margin: 0 0 1 0; }
+    .label { margin: 1 0 0 0; }
+    OptionList.outputs { height: auto; max-height: 8; }
+    .details { display: none; height: auto; max-height: 16; margin: 1 0 0 0; }
+    VideoScreen.-details .details { display: block; }
+
+    .body { height: 1fr; }
+    .body .rows { width: 1fr; }
+    .body .preview { margin: 0 0 0 2; }
+    Results.-narrow .body .preview { display: none; }
+
+    ModalScreen { background: #000000 55%; align: center middle; padding: 0; }
+    .sheet {
+        width: 64; height: auto; padding: 1 2;
+        border: round #3a3a3a; background: #0f0f0f;
+    }
+    .sheet.wide { width: 90%; max-height: 80%; }
+    .sheet .title { margin: 0 0 1 0; }
+    .sheet .field, .sheet Input { background: #0f0f0f; }
+    .sheet .hint { margin: 1 0 0 0; }
+    .diagnostics { height: auto; max-height: 20; }
+    Choice { height: 1; }
+    Choice:focus { text-style: underline; }
+    Activity { align: right top; background: #000000 45%; }
+    .panel {
+        width: 70; max-width: 100%; height: 100%; padding: 1 2;
+        background: #0f0f0f; border-left: solid #2a2a2a;
+    }
+    .panel .title, .panel .service { margin: 0 0 1 0; }
+    .panel .rows { background: #0f0f0f; }
     """
-    BINDINGS = [
-        Binding("up", "move(-1)", show=False, priority=True),
-        Binding("down", "move(1)", show=False, priority=True),
-        Binding("tab", "complete", show=False, priority=True),
-        Binding("escape", "dismiss", show=False, priority=True),
-        Binding("ctrl+s", "export", show=False, priority=True),
-        Binding("ctrl+l", "clear", show=False, priority=True),
-        Binding("ctrl+c,ctrl+q", "quit", show=False, priority=True),
-    ]
+    BINDINGS = [Binding("ctrl+c,ctrl+q", "quit", show=False, priority=True)]
 
     def __init__(self, data_dir: Path, device: str | None = None) -> None:
         super().__init__()
         self.videos = VideoStore(data_dir)
         self.searches = SearchStore(self.videos.database_path)
         self.device = device
-        self.mode: SearchMode = "all"
-        self.active: Results | None = None
+        self.jobs: JobStore | None = None
+        self.offline: str | None = None
+        self.connecting = False
+        self.refreshing = False
+        self.snapshot = Snapshot()
+        self.adding: dict[Path, str] = {}
+        self.failures: list[Failure] = []
         self.busy: dict[int, str] = {}
-        self.frame = 0
         self.flash: tuple[Text, float] | None = None
-        self.history: list[str] = []
-        self.recall: int | None = None
+        self.frame = 0
         self._text_embedder: Embedder | None = None
-        self._media_embedder: Embedder | None = None
 
-    # Layout
-
-    def compose(self) -> ComposeResult:
-        with VerticalScroll(id="log"):
-            yield Static(wordmark(), id="welcome")
-        yield OptionList(id="menu", compact=True)
-        with Horizontal(id="prompt"):
-            yield Static("›", id="caret")
-            yield Input(
-                placeholder="describe a moment",
-                suggester=Completer(),
-                id="input",
-                compact=True,
-            )
-        yield Static(id="state")
+    def get_default_screen(self) -> Screen:
+        return Library()
 
     def on_mount(self) -> None:
         self.videos.initialize()
         self.searches.initialize()
-        self.library = self.videos.list()
-        self.indexed = {record.video_id for record in self.searches.indexes()}
-        self.query_one(Input).focus()
-        self.set_interval(0.05, self.tick)
-        self.refresh_status()
+        self.reconnect()
+        self.reload()
+        self.set_interval(1, self.reload)
+        self.set_interval(5, self.reconnect)
+        self.set_interval(0.08, self.tick)
 
-    def follow(self) -> None:
-        self.call_after_refresh(self.transcript.scroll_end, animate=False)
+    def on_unmount(self) -> None:
+        if self.jobs is not None:
+            self.jobs.close()
 
-    @property
-    def transcript(self) -> VerticalScroll:
-        return self.query_one("#log", VerticalScroll)
+    # Data
 
-    async def turn(self, prompt: str) -> Vertical:
-        body = Vertical(classes="body")
-        turn = Vertical(
-            Static(Text.assemble(("› ", FAINT), (prompt, STRONG)), classes="echo"),
-            body,
-            classes="turn",
-        )
-        await self.transcript.mount(turn)
-        self.follow()
-        return body
-
-    def say(self, body: Vertical, content: Text) -> Static:
-        widget = Static(content)
-        body.mount(widget)
-        self.follow()
-        return widget
-
-    def fail(self, body: Vertical, error: Exception) -> None:
-        message = explain(error).splitlines() or ["failed"]
-        self.say(
-            body,
-            Text.assemble(
-                (message[0], ERROR),
-                *(("\n" + line, FAINT) for line in message[1:]),
-            ),
+    def load(self) -> Snapshot:
+        """The one place the app reads stored state."""
+        jobs = self.jobs.list() if self.jobs is not None else []
+        return Snapshot(
+            videos=self.videos.list()[::-1],
+            ready={record.video_id for record in self.searches.indexes()},
+            jobs=jobs,
         )
 
-    # Status line
+    def reload(self) -> None:
+        if not self.refreshing:
+            self.refreshing = True
+            self.refresh_snapshot()
 
-    def on_resize(self, event: events.Resize) -> None:
-        self.screen.set_class(event.size.width < 100, "-narrow")
-
-    def tick(self) -> None:
-        if self.busy:
-            self.frame += 1
-            self.refresh_status()
-        elif self.flash is not None and self.flash[1] < time.monotonic():
-            self.flash = None
-            self.refresh_status()
-
-    def notice(self, text: Text, seconds: float = 1.6) -> None:
-        self.flash = (text, time.monotonic() + seconds)
-        self.refresh_status()
-
-    def refresh_status(self) -> None:
-        if not self.query("#state"):
-            return  # Shutting down.
-        state = Text()
-        if self.busy:
-            label = next(reversed(self.busy.values()))
-            if self.animation_level == "none":
-                state.append(label, MUTED)
-            else:
-                for char, shade in term.shimmer(label, self.frame):
-                    state.append(char, Style(color=Color.from_ansi(shade)))
-        elif self.flash is not None:
-            state = self.flash[0]
-        else:
-            state.append(f"{len(self.library)} videos", MUTED)
-            state.append(" · ", FAINT)
-            state.append(f"{len(self.indexed)} indexed", MUTED)
-            if self.mode != "all":
-                state.append(" · ", FAINT)
-                state.append(self.mode, TEXT)
-        self.query_one("#state", Static).update(state)
-        self.query_one(Input).placeholder = (
-            "" if self.query(".turn") else "describe a moment"
-        )
-
-    def working(self, key: int, label: str) -> None:
-        self.busy[key] = label
-        self.refresh_status()
-
-    def done(self, key: int) -> None:
-        self.busy.pop(key, None)
-        self.refresh_status()
-
-    # Input
-
-    @on(Input.Changed)
-    def changed(self, event: Input.Changed) -> None:
-        menu = self.query_one("#menu", OptionList)
-        value = event.value
-        if value.startswith("/") and " " not in value:
-            matches = [row for row in SLASH if row[0].startswith(value)]
-            menu.clear_options()
-            menu.add_options(
-                Option(row, id=name)
-                for (name, _, _), row in zip(matches, menu_rows(tuple(matches)))
-            )
-            menu.set_class(bool(matches), "-open")
-            if matches:
-                menu.highlighted = 0
-        else:
-            menu.remove_class("-open")
-        if value and not value.startswith("/"):
-            self.warm()
-        self.refresh_status()
-
-    @on(Input.Submitted)
-    async def submitted(self, event: Input.Submitted) -> None:
-        menu = self.query_one("#menu", OptionList)
-        value = event.value.strip()
-        if menu.has_class("-open") and menu.highlighted is not None:
-            option = menu.get_option_at_index(menu.highlighted)
-            if option.id and value != option.id and option.id.startswith(value):
-                value = option.id
-        event.input.clear()
-        menu.remove_class("-open")
-        if value:
-            self.history.append(value)
-        self.recall = None
-        if not value:
-            if self.active is not None and self.active.selected is not None:
-                self.play(self.active.selected)
-            return
-        if value.startswith("/"):
-            await self.command(value)
-        else:
-            self.search(value, await self.turn(value))
-
-    def action_move(self, delta: int) -> None:
-        menu = self.query_one("#menu", OptionList)
-        if menu.has_class("-open"):
-            current = menu.highlighted or 0
-            menu.highlighted = max(0, min(menu.option_count - 1, current + delta))
-        elif self.active is not None:
-            self.active.move(delta)
-        elif self.history:
-            field = self.query_one(Input)
-            last = len(self.history)
-            self.recall = max(
-                0, min(last, (last if self.recall is None else self.recall) + delta)
-            )
-            field.value = self.history[self.recall] if self.recall < last else ""
-            field.cursor_position = len(field.value)
-
-    def action_complete(self) -> None:
-        field = self.query_one(Input)
-        menu = self.query_one("#menu", OptionList)
-        if menu.has_class("-open") and menu.highlighted is not None:
-            option = menu.get_option_at_index(menu.highlighted)
-            field.value = f"{option.id} "
-        elif field._suggestion:
-            field.value = field._suggestion
-        field.cursor_position = len(field.value)
-
-    def action_dismiss(self) -> None:
-        menu = self.query_one("#menu", OptionList)
-        if menu.has_class("-open"):
-            menu.remove_class("-open")
-        else:
-            self.query_one(Input).clear()
-
-    def action_clear(self) -> None:
-        self.active = None
-        for turn in self.query(".turn"):
-            turn.remove()
-        self.refresh_status()
-
-    async def action_export(self) -> None:
-        if self.active is not None and self.active.selected is not None:
-            hit = self.active.selected
-            self.export(hit, await self.turn(f"save {span(hit)}"))
-
-    # Commands
-
-    async def command(self, line: str) -> None:
+    @work(thread=True)
+    def refresh_snapshot(self) -> None:
         try:
-            name, *args = shlex.split(line)
-        except ValueError as error:
-            self.fail(await self.turn(line), error)
+            snapshot = self.load()
+        except (psycopg.Error, PoolTimeout):
+            self.call_from_thread(self.disconnect)
             return
-        if name == "/quit":
-            self.exit()
-            return
-        if name == "/clear":
-            self.action_clear()
-            return
-        if name == "/save":
-            if self.active is None:
-                self.say(await self.turn(line), Text("search first", MUTED))
-            else:
-                await self.action_export()
-            return
-        body = await self.turn(line)
-        if name == "/mode":
-            if args and args[0] in MODES:
-                self.mode = MODES[MODES.index(args[0])]
-                self.refresh_status()
-            self.say(
-                body,
-                Text(" · ").join(
-                    Text(mode, STRONG if mode == self.mode else FAINT) for mode in MODES
-                ),
-            )
-        elif name == "/videos":
-            self.show_library(body)
-        elif (
-            name in ("/inspect", "/process")
-            and args
-            and not Path(args[0]).expanduser().is_file()
-        ):
-            self.say(body, Text(f"no such file  {args[0]}", ERROR))
-        elif name == "/inspect" and len(args) == 1:
-            self.inspect(Path(args[0]).expanduser(), body)
-        elif name == "/index" and args:
-            self.index(args, body)
-        elif name == "/process" and len(args) == 2 and args[1].isdigit():
-            self.process(Path(args[0]).expanduser(), int(args[1]), body)
-        else:
-            known = {row[0]: row for row in SLASH}
-            help_rows = [known[name]] if name in known else SLASH
-            self.say(body, Text("\n").join(menu_rows(tuple(help_rows))))
+        finally:
+            self.refreshing = False
+        self.call_from_thread(self.apply, snapshot)
 
-    def show_library(self, body: Vertical) -> None:
-        if not self.library:
-            self.say(body, Text.assemble(("empty", MUTED), ("  /index <path>", FAINT)))
+    def apply(self, snapshot: Snapshot) -> None:
+        for video in snapshot.videos:
+            before = self.snapshot.video(video.id)
+            if before is None:
+                continue
+            was, now = self.snapshot.state(before)[0], snapshot.state(video)[0]
+            name = video.filename or "untitled"
+            if was == "indexing" and now == "ready":
+                self.notice(Text(f"{name} is ready to search", TEXT), 4)
+            elif was == "indexing" and now == "failed":
+                message = f"Couldn't make {name} searchable · ! activity"
+                self.notice(Text(message, ERROR), 6)
+        self.snapshot = snapshot
+        self.update_views()
+
+    def reconnect(self) -> None:
+        if self.jobs is None and not self.connecting:
+            self.connecting = True
+            self.connect()
+
+    @work(thread=True)
+    def connect(self) -> None:
+        try:
+            store = JobStore(self.videos.database_path, database_url())
+        except ValueError:
+            reason = "Set VIDEO_PIPELINE_DATABASE_URL to reach the job service."
+            self.call_from_thread(self.go_offline, reason)
             return
-        names = [term.clip(video.filename or "untitled", 32) for video in self.library]
-        size = max(map(len, names)) + 3
-        text = Text()
-        for video, name in zip(self.library, names, strict=True):
-            indexed = video.id in self.indexed
-            length = term.timecode(video.duration_seconds or 0)
-            text.append("● " if indexed else "○ ", TEXT if indexed else FAINT)
-            text.append(term.pad(name, size), TEXT)
-            text.append(f"{length}\n", MUTED)
-        text.rstrip()
-        self.say(body, text)
+        try:
+            store.open()
+        except (psycopg.Error, PoolTimeout):
+            self.call_from_thread(self.go_offline, "The job service isn't running.")
+            return
+        try:
+            store.require_schema()
+        except ValueError:
+            store.close()
+            self.call_from_thread(self.go_offline, "The job database isn't set up yet.")
+            return
+        self.call_from_thread(self.go_online, store)
+
+    def go_online(self, store: JobStore) -> None:
+        self.jobs, self.offline, self.connecting = store, None, False
+        self.reload()
+
+    def go_offline(self, reason: str) -> None:
+        self.offline, self.connecting = reason, False
+        self.update_views()
+
+    def disconnect(self) -> None:
+        if self.jobs is not None:
+            self.jobs.close()
+            self.jobs = None
+        self.go_offline("Lost the connection to the job service.")
+
+    def output(self, job: JobRecord) -> Path:
+        assert self.jobs is not None and job.output is not None
+        return self.jobs.output_path(job.id, job.output.filename)
 
     # Work
 
+    @work(thread=True)
+    def add(self, path: Path, searchable: bool) -> None:
+        self.call_from_thread(self.track, path, True)
+        try:
+            with path.open("rb") as source:
+                video = self.videos.add(source, path.name)
+        except (subprocess.CalledProcessError, ValueError, OSError) as error:
+            summary = "This file couldn't be read as a video."
+            failure = Failure(path.name, summary, explain(error))
+            self.call_from_thread(self.add_failed, failure)
+            return
+        finally:
+            self.call_from_thread(self.track, path, False)
+        self.call_from_thread(self.added, video, searchable)
+
+    def track(self, path: Path, adding: bool) -> None:
+        if adding:
+            self.adding[path] = path.name
+        else:
+            self.adding.pop(path)
+        self.update_views()
+
+    def add_failed(self, failure: Failure) -> None:
+        self.failures.append(failure)
+        self.notice(Text(f"Couldn't add {failure.name} · ! activity", ERROR), 6)
+
+    def added(self, video: VideoRecord, searchable: bool) -> None:
+        library = self.screen_stack[0]
+        if isinstance(library, Library):
+            library.select = str(video.id)
+        if searchable:
+            self.submit(video, IndexOperation(type="index"))
+        self.reload()
+
+    @work(thread=True)
+    def submit(self, video: VideoRecord, operation: ProcessingOperation) -> None:
+        jobs = self.jobs
+        if jobs is None:
+            message = f"Start the job service first: {START_SERVICE}"
+            self.call_from_thread(self.notice, Text(message, ERROR), 6)
+            return
+        try:
+            if isinstance(operation, IndexOperation) and not video.duration_seconds:
+                raise ValueError(
+                    "This video's length is unknown, so it can't be indexed."
+                )
+            if isinstance(operation, ClipOperation):
+                operation.validate_source_duration(video.duration_seconds)
+        except ValueError as error:
+            self.call_from_thread(self.notice, Text(str(error), ERROR), 6)
+            return
+        try:
+            jobs.create(video.id, operation)
+        except (psycopg.Error, PoolTimeout):
+            self.call_from_thread(self.disconnect)
+            return
+        self.call_from_thread(self.reload)
+
     def text_embedder(self) -> Embedder:
-        if self._media_embedder is not None:
-            return self._media_embedder
         if self._text_embedder is None:
             self._text_embedder = Embedder(self.device, text_only=True)
         return self._text_embedder
 
-    def media_embedder(self) -> Embedder:
-        if self._media_embedder is None:
-            self._media_embedder = Embedder(self.device)
-        return self._media_embedder
-
     @work(thread=True, exclusive=True, group="warm")
     def warm(self) -> None:
-        if self._text_embedder is not None or self._media_embedder is not None:
+        if self._text_embedder is not None:
             return
         embedder = self.text_embedder()
-        key = id(embedder)
-        self.call_from_thread(self.working, key, "loading model")
+        self.call_from_thread(self.working, id(embedder), "loading search")
         try:
             embedder.queries(["warm up"])
-        except Exception:
-            pass  # Reported by the search that needs it.
+        except (OSError, ValueError):
+            pass  # The search that needs the model reports the problem.
         finally:
-            self.call_from_thread(self.done, key)
+            self.call_from_thread(self.done, id(embedder))
 
-    @work(thread=True, exclusive=True, group="search")
-    def search(self, query: str, body: Vertical) -> None:
-        key = id(body)
-        self.call_from_thread(self.working, key, "searching")
-        try:
-            response = self.searches.search(
-                SearchRequest(query=query, mode=self.mode, limit=8),
-                self.text_embedder(),
-            )
-            thumbnails = [
-                self.searches.thumbnail(hit.video_id, hit.window)
-                for hit in response.matches
-            ]
-            if get_current_worker().is_cancelled:
-                return  # A newer search took over.
-            self.call_from_thread(self.show_results, body, response.matches, thumbnails)
-        except Exception as error:
-            self.call_from_thread(self.fail, body, error)
-        finally:
-            self.call_from_thread(self.done, key)
-
-    def show_results(
-        self, body: Vertical, hits: list[SearchHit], thumbnails: list[bytes | None]
+    def play(
+        self, path: Path, start: float = 0, end: float | None = None, label: str = ""
     ) -> None:
-        if not hits:
-            empty = (
-                Text("no matches", MUTED)
-                if self.indexed
-                else Text.assemble(
-                    ("nothing indexed yet", MUTED), ("  /index <path>", FAINT)
-                )
-            )
-            self.say(body, empty)
-            return
-        if self.active is not None:
-            self.active.retire()
-        results = Results(hits, thumbnails)
-        body.mount(results)
-        self.follow()
-        self.active = results
-        self.refresh_status()
-
-    @work(thread=True)
-    def inspect(self, path: Path, body: Vertical) -> None:
-        from video_pipeline.inspection import inspect_video
-
-        try:
-            info = inspect_video(path)
-            text = Text.assemble(
-                (info.path.name, STRONG),
-                ("  " + term.filesize(info.path.stat().st_size), FAINT),
-                "\n\n",
-                facts(term.facts(info)),
-            )
-            self.call_from_thread(self.say, body, text)
-        except Exception as error:
-            self.call_from_thread(self.fail, body, error)
-
-    def progress(self, name: str, seconds: float | None, total: float | None) -> Text:
-        text = Text.assemble((term.pad(term.clip(name, 28), 30), TEXT))
-        if seconds is None or not total:
-            return text
-        fraction = min(1.0, seconds / total)
-        return text.append_text(meter(fraction, 24)).append_text(
-            Text.assemble(
-                (f"  {fraction * 100:3.0f}%", TEXT),
-                (f"  {term.timecode(seconds)} / {term.timecode(total)}", FAINT),
-            )
-        )
-
-    @work(thread=True, group="index")
-    def index(self, targets: list[str], body: Vertical) -> None:
-        key = id(body)
-        try:
-            records: list[VideoRecord] = []
-            for target in targets:
-                path = Path(target).expanduser()
-                if path.is_file():
-                    self.call_from_thread(self.working, key, f"storing {path.name}")
-                    with path.open("rb") as source:
-                        records.append(self.videos.add(source, path.name))
-                    continue
-                matches = [
-                    video
-                    for video in self.videos.list()
-                    if video.filename == target or str(video.id).startswith(target)
-                ]
-                if len(matches) != 1:
-                    problem = "ambiguous" if matches else "no such file or video"
-                    raise ValueError(f"{problem}  {target}")
-                records.extend(matches)
-            self.library = self.videos.list()
-
-            embedder = self.media_embedder()
-            for video in records:
-                name = video.filename or str(video.id)[:8]
-                total = video.duration_seconds
-                line = self.call_from_thread(
-                    self.say, body, self.progress(name, 0, total)
-                )
-
-                def update(
-                    seconds: float,
-                    name: str = name,
-                    total: float | None = total,
-                    line=line,
-                ) -> None:
-                    self.call_from_thread(
-                        line.update, self.progress(name, seconds, total)
-                    )
-                    status = f"indexing {name}"
-                    if total:
-                        status += f"  {min(100, seconds / total * 100):.0f}%"
-                    self.call_from_thread(self.working, key, status)
-
-                self.call_from_thread(self.working, key, f"indexing {name}")
-                result = self.searches.index(
-                    video, self.videos, IndexSettings(), embedder, update
-                )
-                self.indexed.add(video.id)
-                self.call_from_thread(
-                    line.update,
-                    Text.assemble(
-                        (term.pad(term.clip(name, 28), 28), TEXT),
-                        (f"{result.windows} windows", MUTED),
-                        (" · ", FAINT),
-                        (term.elapsed(result.elapsed_seconds), FAINT),
-                    ),
-                )
-        except Exception as error:
-            self.call_from_thread(self.fail, body, error)
-        finally:
-            self.call_from_thread(self.done, key)
-
-    @work(thread=True)
-    def process(self, path: Path, height: int, body: Vertical) -> None:
-        from video_pipeline.inspection import inspect_video
-        from video_pipeline.processing import process_video
-
-        key = id(body)
-        try:
-            source = inspect_video(path)
-            output = Path("outputs") / f"{path.stem}-{height}p"
-            suffix = 1
-            while output.exists():
-                suffix += 1
-                output = Path("outputs") / f"{path.stem}-{height}p-{suffix}"
-            line = self.call_from_thread(
-                self.say, body, self.progress("transcoding", 0, source.duration_seconds)
-            )
-
-            def update(seconds: float) -> None:
-                self.call_from_thread(
-                    line.update,
-                    self.progress("transcoding", seconds, source.duration_seconds),
-                )
-
-            self.call_from_thread(self.working, key, f"transcoding {path.name}")
-            result = process_video(path, height, output, update)
-            self.call_from_thread(
-                line.update,
-                facts(
-                    [
-                        ("video", [shown(result.video_path)]),
-                        ("thumbnail", [shown(result.thumbnail_path)]),
-                    ]
-                ),
-            )
-        except Exception as error:
-            self.call_from_thread(self.fail, body, error)
-        finally:
-            self.call_from_thread(self.done, key)
-
-    @work(thread=True)
-    def export(self, hit: SearchHit, body: Vertical) -> None:
-        from video_pipeline.inspection import inspect_video
-        from video_pipeline.processing import clip_video
-
-        key = id(body)
-        try:
-            stem = Path(hit.filename or str(hit.video_id)).stem
-            moment = f"{hit.start_seconds:.0f}-{hit.end_seconds:.0f}"
-            output = Path("outputs") / "clips" / f"{stem}-{moment}.mp4"
-            output.parent.mkdir(parents=True, exist_ok=True)
-            self.call_from_thread(self.working, key, "saving clip")
-            source = inspect_video(self.videos.original_path(hit.video_id))
-            clip_video(source, hit.start_seconds, hit.end_seconds, output)
-            self.call_from_thread(self.say, body, Text(shown(output), TEXT))
-        except Exception as error:
-            self.call_from_thread(self.fail, body, error)
-        finally:
-            self.call_from_thread(self.done, key)
-
-    def play(self, hit: SearchHit) -> None:
-        command = player(
-            self.videos.original_path(hit.video_id), hit.start_seconds, hit.end_seconds
-        )
+        command = player(path, start, end)
         if command is None:
-            self.notice(Text("install mpv or ffplay to play", ERROR), 3)
+            self.notice(Text("Install mpv or ffplay to play videos.", ERROR), 4)
             return
-        try:
-            subprocess.Popen(
-                command,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-        except OSError as error:
-            self.notice(Text(explain(error), ERROR), 3)
-            return
-        self.notice(Text.assemble(("playing ", MUTED), (span(hit), TEXT)))
+        subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        self.notice(Text.assemble(("playing ", MUTED), (label, TEXT)))
+
+    def copy_error(self, diagnostics: str) -> None:
+        self.copy_to_clipboard(redact(diagnostics))
+        self.notice(Text("Error copied", MUTED))
+
+    # Status
+
+    def working(self, key: int, label: str) -> None:
+        self.busy[key] = label
+        self.update_views()
+
+    def done(self, key: int) -> None:
+        self.busy.pop(key, None)
+        self.update_views()
+
+    def notice(self, text: Text, duration: float = 1.6) -> None:
+        self.flash = (text, time.monotonic() + duration)
+        self.update_views()
+
+    def message(self) -> Text:
+        if self.busy:
+            label = next(reversed(self.busy.values()))
+            if self.animation_level == "none":
+                return Text(label, MUTED)
+            text = Text()
+            for char, shade in term.shimmer(label, self.frame):
+                text.append(char, Style(color=Color.from_ansi(shade)))
+            return text
+        if self.flash is not None:
+            return self.flash[0]
+        return Text("")
+
+    def tick(self) -> None:
+        self.frame += 1
+        if self.flash is not None and self.flash[1] < time.monotonic():
+            self.flash = None
+            self.update_views()
+        elif self.busy or self.adding or self.snapshot.active():
+            self.update_views()
+
+    def update_views(self) -> None:
+        for screen in self.screen_stack:
+            if isinstance(screen, View | Activity) and screen.is_mounted:
+                screen.update_view()
 
 
 def run(data_dir: Path, device: str | None = None) -> None:

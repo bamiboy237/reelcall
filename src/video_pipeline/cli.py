@@ -252,8 +252,8 @@ def index(args: argparse.Namespace) -> None:
                 records.append(videos.add(source, path.name))
 
     embedder = Embedder(args.device)
-    names = [video.filename or str(video.id)[:8] for video in records]
-    size = min(max(len(name) for name in names), 32) + 3
+    names = [term.middle(video.filename or "untitled", 32) for video in records]
+    size = max(term.cell_len(name) for name in names) + 3
     if not args.json:
         term.emit("")
     for video, name in zip(records, names, strict=True):
@@ -269,8 +269,8 @@ def index(args: argparse.Namespace) -> None:
             else out.faint(term.elapsed(result.elapsed_seconds))
         )
         term.emit(
-            f"{out.text(term.pad(term.clip(name, 32), size))}"
-            f"{out.muted(f'{result.windows} windows')}{dot()}{timing}",
+            f"{out.text(term.pad(name, size))}"
+            f"{out.muted(term.count(result.windows, 'window'))}{dot()}{timing}",
             out.faint(str(video.id)),
         )
     if not args.json:
@@ -316,10 +316,8 @@ def search(args: argparse.Namespace) -> None:
         f"{start:>{start_size}} – {term.pad(end, end_size)}"
         for start, end in zip(starts, ends, strict=True)
     ]
-    names = [
-        term.clip(hit.filename or str(hit.video_id)[:8], 28) for hit in result.matches
-    ]
-    name_size = max(len(name) for name in names) + 3
+    names = [term.middle(hit.filename or "untitled", 28) for hit in result.matches]
+    name_size = max(term.cell_len(name) for name in names) + 3
     for rank, (hit, span, name) in enumerate(
         zip(result.matches, spans, names, strict=True)
     ):
@@ -353,8 +351,8 @@ def evaluate(args: argparse.Namespace) -> None:
     label = max(len(mode) for mode in summary) + 4
     lines = [
         "",
-        f"{out.strong(str(queries))} {out.muted('queries')}{dot()}"
-        f"{out.strong(str(videos))} {out.muted('videos' if videos != 1 else 'video')}",
+        f"{out.muted(term.count(queries, 'query', 'queries'))}"
+        f"{dot()}{out.muted(term.count(videos, 'video'))}",
         "",
         " " * label + "".join(out.faint(f"{header:>9}") for _, header in METRICS),
     ]

@@ -21,6 +21,12 @@ and playback links.
 ## Use
 
 ```sh
-video-pipeline            # interactive: type to search, / for commands
+docker compose up -d      # job service: processing and indexing
+video-pipeline            # library, search and progress
 video-pipeline -h         # one-shot commands for scripts (add --json)
 ```
+
+The app needs `VIDEO_PIPELINE_DATABASE_URL` pointing at the job service's
+database (`postgresql://video_pipeline:…@127.0.0.1:15432/video_pipeline`).
+Without it, the library and search still work; adding work waits for the
+service.
