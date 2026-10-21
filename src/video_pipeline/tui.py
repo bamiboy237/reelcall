@@ -688,6 +688,7 @@ class VideoScreen(View):
     BINDINGS = [
         Binding("p", "play"),
         Binding("v", "play_video"),
+        Binding("slash", "search"),
         Binding("i", "index"),
         Binding("r", "resize"),
         Binding("c", "clip"),
@@ -736,6 +737,8 @@ class VideoScreen(View):
         pairs.append(("p", "play moment" if self.moment else "play"))
         if self.moment:
             pairs.append(("v", "play video"))
+        if state == "ready":
+            pairs.append(("/", "search"))
         if state in ("uploaded", "failed"):
             pairs.append(("i", "make searchable" if state == "uploaded" else "retry"))
         pairs += [("r", "resize"), ("c", "clip"), ("d", "details")]
@@ -892,6 +895,26 @@ class VideoScreen(View):
         if self.pipeline.snapshot.state(self.video)[0] in ("uploaded", "failed"):
             self.pipeline.submit(self.video, IndexOperation(type="index"))
 
+    def action_search(self) -> None:
+        state, _ = self.pipeline.snapshot.state(self.video)
+        if state != "ready":
+            hint = (
+                "press i to make it searchable first"
+                if state in ("uploaded", "failed")
+                else "search opens once indexing finishes"
+            )
+            self.pipeline.notice(Text(f"Not searchable yet — {hint}.", MUTED), 3)
+            return
+
+        def chosen(query: str | None) -> None:
+            if query and query.strip():
+                self.pipeline.push_screen(Results(query.strip(), self.video))
+
+        self.pipeline.warm()
+        self.pipeline.push_screen(
+            Ask("Search this video", "describe a moment…", ""), chosen
+        )
+
     def action_resize(self) -> None:
         def chosen(height: str | None) -> None:
             if height is None:
@@ -948,9 +971,14 @@ class Results(View):
         Binding("escape", "back"),
     ]
 
-    def __init__(self, query: str) -> None:
+    def __init__(self, query: str, video: VideoRecord | None = None) -> None:
         super().__init__()
         self.query_text = query
+        # Set when the search is scoped to one video's workspace.
+        self.video_id = video.id if video is not None else None
+        self.scope_name = (
+            (video.filename or "untitled") if video is not None else None
+        )
         self.min_score: float | None = None
         self.names: list[VideoRecord] = []
         self.hits: list[SearchHit] = []
@@ -974,12 +1002,15 @@ class Results(View):
         self.run_search()
 
     def run_search(self) -> None:
-        needle = self.query_text.casefold()
-        self.names = [
-            video
-            for video in self.pipeline.snapshot.videos
-            if needle in (video.filename or "").casefold()
-        ][:5]
+        if self.video_id is not None:
+            self.names = []  # Scoped: moments only, no cross-video matches.
+        else:
+            needle = self.query_text.casefold()
+            self.names = [
+                video
+                for video in self.pipeline.snapshot.videos
+                if needle in (video.filename or "").casefold()
+            ][:5]
         self.hits, self.thumbnails, self.problem = [], [], None
         self.searching = True
         self.generation += 1
@@ -993,7 +1024,12 @@ class Results(View):
         app.call_from_thread(app.working, key, "searching")
         try:
             response = app.searches.search(
-                SearchRequest(query=query, limit=12, min_score=min_score),
+                SearchRequest(
+                    query=query,
+                    limit=12,
+                    min_score=min_score,
+                    video_ids=[self.video_id] if self.video_id is not None else None,
+                ),
                 app.text_embedder(),
             )
             thumbnails = [
@@ -1063,7 +1099,7 @@ class Results(View):
             filter_label.update(Text(f"Minimum score: {self.min_score:g}", FAINT))
         width = self.size.width - (10 if self.has_class("-narrow") else 52)
         options: list[Option] = []
-        if self.names:
+        if self.names and self.video_id is None:
             options.append(Option(Text("Videos", FAINT), disabled=True))
             for index, video in enumerate(self.names):
                 glyph, glyph_style = GLYPHS[snapshot.state(video)[0]]
@@ -1080,7 +1116,9 @@ class Results(View):
         elif self.problem:
             options.append(Option(Text(self.problem[0], ERROR), disabled=True))
         elif not self.hits:
-            if not snapshot.ready:
+            if self.video_id is not None:
+                message = "No moments match in this video."
+            elif not snapshot.ready:
                 message = "No indexed videos."
             elif self.min_score is not None:
                 message = "No results. Press f to lower the minimum score."
@@ -1145,6 +1183,8 @@ class Results(View):
             self.pipeline.push_screen(VideoScreen(hit.video_id, hit))
 
     def crumb(self) -> str:
+        if self.scope_name is not None:
+            return f"{self.scope_name} › ⌕ {term.clip(self.query_text, 32)}"
         return f"⌕ {term.clip(self.query_text, 32)}"
 
     def action_edit(self) -> None:

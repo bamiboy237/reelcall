@@ -213,6 +213,9 @@ class Preview(tui.Pipeline):
                 )
                 for index, (v, start, end, score, mode, _) in enumerate(hits)
             ]
+            if request.video_ids:
+                wanted = set(request.video_ids)
+                matches = [match for match in matches if match.video_id in wanted]
             return SearchResponse(
                 query=request.query, mode=request.mode, matches=matches
             )

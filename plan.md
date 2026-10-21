@@ -1172,6 +1172,29 @@ Check distribution requirements before bundling those binaries in a release.
 - [FFPyPlayer source and licensing](https://github.com/matham/ffpyplayer)
 - [textual-video](https://github.com/fi-res/textual-video)
 
+## Per-video workspace search
+
+Global search remains the Library default. A video's page is its workspace:
+press `/` there to search only that video's moments, using the existing
+`SearchRequest.video_ids` scope. Scoped results show the video's name in the
+crumb, list moments only (no cross-video name matches), and say "No moments
+match in this video" when empty. Enter still plays the moment in the
+terminal; `→` opens it in the workspace. On a video that is not searchable
+yet, `/` points at `i` instead of opening a search that cannot work.
+
+### Local verification
+
+- A throwaway Textual Pilot script (not committed) drove the preview app:
+  Library → open `kitchen.mp4` → `/` → typed query → submitted. The search
+  request carried `video_ids=[kitchen]` only, the results crumb read
+  "kitchen.mp4 › ⌕ …", and the workspace key bar offered `/ search`.
+- The same run repeated the flow through the Library query and confirmed
+  the global request still carries `video_ids=None`.
+- `dev/preview.py`'s stub now honors `video_ids`, so previewed scoped
+  searches filter like the real store.
+- Ruff and `py_compile` pass on `src/video_pipeline/tui.py` and
+  `dev/preview.py`.
+
 ## Review loop
 
 1. Confirm the current slice and its acceptance criteria.
