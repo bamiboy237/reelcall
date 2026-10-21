@@ -1114,12 +1114,12 @@ class Results(View):
         elif self.problem:
             options.append(Option(Text(self.problem[0], ERROR), disabled=True))
         elif not self.hits:
-            if self.video_id is not None:
+            if self.min_score is not None:
+                message = "No results. Press f to lower the minimum score."
+            elif self.video_id is not None:
                 message = "No moments match in this video."
             elif not snapshot.ready:
                 message = "No indexed videos."
-            elif self.min_score is not None:
-                message = "No results. Press f to lower the minimum score."
             else:
                 message = "No results."
             options.append(Option(Text(message, FAINT), disabled=True))
@@ -1182,7 +1182,7 @@ class Results(View):
 
     def crumb(self) -> str:
         if self.scope_name is not None:
-            return f"{self.scope_name} › ⌕ {term.clip(self.query_text, 32)}"
+            return f"{self.scope_name}  ›  ⌕ {term.clip(self.query_text, 32)}"
         return f"⌕ {term.clip(self.query_text, 32)}"
 
     def action_edit(self) -> None:
