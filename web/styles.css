@@ -366,20 +366,27 @@ button {
   min-height: 0;
 }
 
-/* Demo scene transitions */
+/* Autoplay demo scenes: one scene is painted at a time. Inactive scenes are
+   removed from layout so an outgoing scene can never blend with the incoming
+   video; only the arriving scene fades in. */
 .scene {
   position: absolute;
   inset: 0;
-  opacity: 0;
-  transform: translateY(6px);
-  pointer-events: none;
-  transition: opacity 240ms var(--ease-out), transform 240ms var(--ease-out);
+  display: none;
 }
 
 .scene.is-active {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
+  display: block;
+  animation: scene-in 200ms var(--ease-out);
+}
+
+@keyframes scene-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .field {
@@ -558,7 +565,10 @@ button {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .scene,
+  .scene.is-active {
+    animation: none;
+  }
+
   .results {
     transition: opacity 150ms var(--ease);
     transform: none;
