@@ -532,8 +532,11 @@ button {
 .player {
   display: block;
   width: 100%;
-  height: 196px;
-  object-fit: cover;
+  max-width: 448px;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  margin-inline: auto;
+  object-fit: contain;
   border: 1px solid #2c333f;
   border-radius: 8px;
   background: #000;
@@ -699,10 +702,6 @@ button {
   .result__thumb {
     width: 84px;
     height: 47px;
-  }
-
-  .player {
-    height: 170px;
   }
 
   .footer {
