@@ -360,13 +360,6 @@ button {
   padding: 28px 32px;
 }
 
-.terminal__label {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--text);
-}
-
 .terminal__viewport {
   position: relative;
   flex: 1 0 0;
@@ -515,24 +508,9 @@ button {
   flex-shrink: 0;
 }
 
-.result__meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
 .result__title {
   font-size: 14px;
   color: var(--text);
-}
-
-.result__sub {
-  font-size: 13px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .result__time {
@@ -554,8 +532,11 @@ button {
 .player {
   display: block;
   width: 100%;
-  height: 196px;
-  object-fit: cover;
+  max-width: 448px;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  margin-inline: auto;
+  object-fit: contain;
   border: 1px solid #2c333f;
   border-radius: 8px;
   background: #000;
@@ -563,15 +544,8 @@ button {
 
 .player__caption {
   margin: 12px 0 0;
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
   font-size: 13px;
   color: var(--text-muted);
-}
-
-.player__state {
-  color: var(--blue-text);
 }
 
 .terminal__keys {
@@ -728,10 +702,6 @@ button {
   .result__thumb {
     width: 84px;
     height: 47px;
-  }
-
-  .player {
-    height: 170px;
   }
 
   .footer {
