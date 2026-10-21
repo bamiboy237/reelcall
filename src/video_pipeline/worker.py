@@ -286,10 +286,7 @@ def run_worker(
     device: str | None = None,
 ) -> None:
     if os.getppid() != 1 or Path("/proc/1/comm").read_text().strip() != "docker-init":
-        raise ValueError(
-            "Run workers with Docker Compose and its init process "
-            "so a worker crash also stops FFmpeg."
-        )
+        raise ValueError("Run workers with Docker Compose and init enabled.")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     videos = VideoStore(data_dir)
     videos.initialize()

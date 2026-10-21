@@ -920,6 +920,172 @@ After the change, a steady-state window spends 7.1 s in the vision tower
   methods. Docker stayed paused. The queued worker and HTTP startup workflow
   were not repeated locally, and no automated tests or smoke scripts were added.
 
+## Terminal workflow follow-up
+
+### Execution plan
+
+1. Reproduce the cold-search error through the real terminal app. Capture its
+   traceback, compare model loading outside the app, and correct the cause.
+2. Use the real stores, PostgreSQL queue, and current Docker workers to add a
+   short video, observe indexing progress, search, play, and save a clip.
+   Resume only the review PostgreSQL container and pause it again afterward.
+3. Repeat the 30-query evaluation using the existing index. Inspect failed
+   sound and timestamp cases before selecting a search-quality change.
+   Do not tune ranking to the reference answers or re-index the full corpus
+   without a measured reason.
+4. Capture actual app screens, inspect the generated clip, and run formatting,
+   lint, type checking, and the package build. Do not add automated tests or
+   smoke scripts. Do not push or merge this work without approval.
+
+### Cold-search diagnosis
+
+- Reproduced `bad value(s) in fds_to_keep` while loading model weights from a
+  Textual search worker. The failure precedes query encoding and ranking.
+- Textual's output capture returns `-1` from `stderr.fileno()`. On macOS,
+  tqdm's first progress lock creates a multiprocessing resource tracker.
+  Python 3.12 passes that invalid descriptor into its process launcher.
+- The same real search in a thread outside Textual returned results. Creating
+  tqdm's documented global lock before starting Textual also let the original
+  app search return results. This isolates output capture and initialization
+  order, rather than media, model weights, or SQLite.
+- Initialize the progress lock in the app constructor, before output capture.
+  Model loading stays lazy and runs in the existing worker. Declare tqdm as
+  a direct dependency because the app now uses its public API.
+- References: [tqdm get_lock](https://tqdm.github.io/docs/tqdm/#get_lock)
+  and [Textual workers](https://textual.textualize.io/guide/workers/).
+
+### Workflow results
+
+- Native workers refused to run because the worker requires Docker's init
+  process. The submitted job stayed queued. Kept that safety rule unchanged.
+- Built the current Docker image and started two isolated workers with init.
+  They used the workflow data directory and the existing model cache.
+  The other containers stayed paused.
+- Added the real six-second `witch-hat-workflow.mp4` through the app.
+  Observed queued, indexing, 100 percent, and ready states. Indexing succeeded
+  on the first attempt. The CPU worker reported 78.944 seconds for the job.
+- Cold search returned the stored moment. Found a second UI defect: a missing
+  selection ID matched the disabled section heading's missing ID. Enter did
+  nothing until the user moved the selection. `fill()` now preserves only
+  a real selected ID and otherwise selects the first actionable row.
+- Repeated search after the selection fix. Enter launched ffplay for the
+  moment, and the player exited with status zero.
+- Submitted a 4–6 second clip through the video screen. The queue produced
+  a 2.002-second MP4. Opened that output through the app. ffplay again exited
+  with status zero.
+- Ran the app with the normal terminal driver, not only the headless driver.
+  Cold search returned 12 results without an error. The first result was
+  the title card at 28–36 seconds in the five-video library.
+  Captured both 120-column and 74-column screens.
+- Stopped the two workflow workers and paused the review PostgreSQL container.
+  Existing containers, volumes, and media remain intact.
+- Locked dependency sync, Ruff format checking, Ruff lint, ty, the wheel and
+  source build, and `git diff --check` passed. No automated tests or smoke
+  scripts were added. Evidence remains under `outputs/tui-workflow-20261021/`.
+
+### Search-quality result and next experiment
+
+- Repeated `evaluate-search` against all 30 reference queries, five videos,
+  and 162 saved windows. No corpus video was re-indexed.
+- Default search retained 29/30 correct videos first, 21/30 overlapping
+  moments first, and 25/30 overlapping moments in the first five.
+  Only 8/30 first results reached interval IoU 0.5. These are unchanged results,
+  not a quality improvement.
+- Compared each reference with every stored window for its correct video.
+  Even perfect ranking could reach IoU 0.5 for only 13/30 references.
+  Short events need shorter windows, not only a different ranking rule.
+- Next experiment: keep the existing coarse windows and compare two-second
+  windows at a one-second stride for candidate refinement. Do not replace
+  the existing windows globally, because long speech references also need
+  context. Measure retrieval quality and added latency before changing defaults.
+- An ideal-location calculation raises the possible IoU 0.5 coverage to
+  28/30 when two-second windows are available alongside existing windows.
+  This calculation uses reference locations. It is a geometric upper bound,
+  not an embedding evaluation or an expected accuracy claim.
+- No ranking change or short-window refinement is included in this follow-up.
+  Search quality remains the next feature slice.
+
+### Recovery checks and retry correction
+
+- Used an isolated copy of the six-second workflow library and its clip output.
+  Stopped the review PostgreSQL container while video details were open.
+  The app stayed open and reported the lost connection. Restarted PostgreSQL.
+  The app reconnected and restored the saved output. Paused the container again
+  after verification. No other service was resumed.
+- Made the isolated index profile incompatible, searched, and restored the
+  profile. This exercised the real search error path without changing the
+  baseline library or replacing inference with a stub.
+- Found that submitting the same query after a failure did not retry it.
+  The input handler only accepted changed queries. Allow the same query when
+  an error is present and add `r` for retry on the results screen.
+- Both Enter on the unchanged query and `r` returned results after the index
+  was restored. Repeated retry with the normal terminal driver.
+- Opening a video and returning preserved library selection. Search also
+  retained its last selected result, scroll position of 10 rows, and minimum
+  score after opening a result and returning.
+
+### Two-second window experiment
+
+- Copied the five-video baseline library. Re-indexed only Witch Hat Atelier
+  with the existing CLI: two-second windows, one-second stride, and MPS.
+  The baseline library and its eight-second windows remain unchanged.
+- The 72.6-second video produced 72 windows instead of 18. Indexing took
+  140.363 seconds. Other videos reused their existing vectors.
+- Encoded the 30 reference queries once and reused their vectors. Compared
+  full-library ranking before and after the one-video index replacement.
+  Also compared refinement restricted to the first coarse result.
+- On that video's six reference queries, both approaches retained 5/6 first
+  overlaps but reduced mean first-result IoU from 0.2632 to 0.2147.
+  First results with IoU at least 0.5 fell from 1/6 to 0/6.
+- Across all 30 queries, first overlaps stayed at 21/30. Precise first results
+  fell from 8/30 to 7/30. Direct short-window replacement increased first-five
+  overlaps from 25/30 to 26/30. These results do not justify a new default.
+- The ice-projectile result narrowed from 16–24 seconds to 18–20 seconds.
+  The longer underwater-sound reference lost needed context. Shorter windows
+  alone do not find event boundaries.
+- Six interleaved warm searches per index took median 0.097 seconds with
+  coarse windows and 0.088 seconds with fine windows. Both used CPU query
+  encoding and precomputed media vectors. This small sample is not evidence
+  of a speed gain. Query-time video inference was not evaluated.
+- Keep eight-second defaults. Do not ship the unsuccessful refinement rule.
+
+### Unrelated queries and explicit filtering
+
+- Inspected the six-second girl's-hat and title-card sample. Queried it with
+  12 absent visual descriptions, including cooking, a rocket launch, and
+  football. All returned a suggestion without a minimum score.
+- Their highest similarity scores ranged from 0.5372 to 0.6193. In the separate
+  30-query positive corpus, first-result scores ranged from 0.6470 to 0.8385.
+  A 0.65 cutoff removed all 12 sample negatives but also removed one positive
+  query's first result. A 0.70 cutoff retained only 22/30 positive queries.
+- These labels cover one known sample, not the full five-video library.
+  Full-library negative-query scores are saved as unlabeled diagnostics.
+  No universal cutoff or calibrated confidence claim follows from this check.
+- `f` exposes the existing minimum-score option. Blank keeps the unchanged
+  default. The app shows the active score. An empty filtered result explains
+  how to lower the score.
+- Removed disclaimers from the interface. The filter is called "Minimum score."
+  Empty states and errors use short messages. Reviewed terminal screens,
+  dialogs, CLI help, and API errors without changing search or validation.
+- Verified setting and clearing the filter, -1, zero, and 1. NaN, infinity,
+  out-of-range values, and nonnumeric input leave the valid filter unchanged.
+  A known matching query remains usable under the selected 0.65 example.
+- Evidence is under `outputs/search-followup-20261021/`. No automated tests,
+  smoke scripts, model changes, or ranking defaults were added.
+
+### Claude review follow-up
+
+- Claude Sonnet 5.5 reviewed the PR and found three low-priority issues.
+- Validate the filter value independently of the query, using the existing
+  `SearchRequest.min_score` annotation and constraints. An oversized query
+  no longer produces a misleading score-validation message.
+- The shared input dialog says "apply" instead of "start." Its score prefill
+  preserves the full float value, so accepting it unchanged does not round
+  the score or rerun the search.
+- Verified the dialog with a 2001-character query, the score 0.123456789,
+  unchanged resubmission, blank input, NaN, infinity, invalid text, and
+  out-of-range values. Formatting, lint, types, build, and diff checks passed.
+
 ## Review loop
 
 1. Confirm the current slice and its acceptance criteria.
