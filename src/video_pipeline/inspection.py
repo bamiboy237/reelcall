@@ -26,6 +26,7 @@ class VideoInfo:
     duration_seconds: float | None
     video_streams: list[VideoStream]
     audio_streams: list[AudioStream]
+    format_name: str | None = None
 
 
 def inspect_video(path: Path) -> VideoInfo:
@@ -36,7 +37,7 @@ def inspect_video(path: Path) -> VideoInfo:
             "-v",
             "error",
             "-show_entries",
-            "format=duration:"
+            "format=duration,format_name:"
             "stream=index,codec_type,codec_name,width,height,avg_frame_rate",
             "-of",
             "json",
@@ -78,4 +79,5 @@ def inspect_video(path: Path) -> VideoInfo:
         duration_seconds=float(duration) if duration is not None else None,
         video_streams=video_streams,
         audio_streams=audio_streams,
+        format_name=metadata["format"].get("format_name"),
     )

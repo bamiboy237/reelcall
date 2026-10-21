@@ -19,6 +19,7 @@ class VideoRecord(BaseModel):
     duration_seconds: float | None
     video_streams: list[VideoStream]
     audio_streams: list[AudioStream]
+    format_name: str | None = None
 
 
 class VideoStore:
@@ -56,6 +57,7 @@ class VideoStore:
                 duration_seconds=info.duration_seconds,
                 video_streams=info.video_streams,
                 audio_streams=info.audio_streams,
+                format_name=info.format_name,
             )
             original_path = self.original_path(video.id)
             upload_path.rename(original_path)

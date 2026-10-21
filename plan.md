@@ -34,8 +34,8 @@ by description. Start with one local video and one worker.
 
 ## Build sequence
 
-Only the next slice receives a detailed design. Later slices describe outcomes,
-not a fixed architecture.
+The processing foundation and timestamped clips are merged. The user approved
+the local search and service integration batches together on 2026-10-21.
 
 | Slice | Outcome | Review workflow |
 | --- | --- | --- |
@@ -44,9 +44,9 @@ not a fixed architecture.
 | 3. Accept and store uploads | Add an HTTP API, local file storage, and persistent video records. Reuse inspection code. | Upload a video and retrieve its stored properties. |
 | 4. Process queued jobs | Add a persistent queue and one background worker. Reuse conversion code. | Submit a video, follow its job state, and retrieve the outputs. |
 | 5. Make jobs recoverable | Add processing progress, bounded retries, and recovery after a worker stops. | Interrupt processing, restart the worker, and inspect the outcome. |
-| 6. Create timestamped clips | Divide videos into clips. Preserve original timestamps and generate thumbnails. | Open clips and compare their timestamps with the original. |
-| 7. Search speech | Add transcripts and text embeddings. Evaluate EmbeddingGemma after checking its documented input support. | Search spoken content and jump to the matching moment. |
-| 8. Search visuals and sound | Add analysis with models that support the required visual and audio inputs. | Try the example queries and measure search quality and processing cost. |
+| 6. Create timestamped clips | Create a requested start-to-end clip without changing the original. Merged in PR #2. | Open clips and compare their timestamps with the original. |
+| 7. Search local videos | Index speech, pictures, and sound with EmbeddingGemma 2. Preserve timestamps without rendering a file for every window. | Compare all three input views against the user's 30 reference queries. |
+| 8. Integrate search with the service | Queue indexing and expose search, thumbnails, and timestamped playback through the existing API. | Upload, index, search, play a result, and request a downloadable clip. |
 
 ## Slice 1: Inspect one local video
 
@@ -376,8 +376,8 @@ editing pipeline yet.
 
 ## Queue correction: Use Procrastinate
 
-Status: implemented and reviewed. The startup and planned-shutdown follow-up is
-locally verified. Commit and push approval remain pending.
+Status: merged. The startup correction and timestamped clip feature are also
+merged. The verification notes below describe the earlier review stages.
 
 ### Approved scope
 
@@ -408,8 +408,9 @@ It checks once per minute, using the library's 30-second heartbeat threshold.
 Recovery requires an available worker; when all workers are stopped, work
 waits until a worker starts again.
 
-Workers run as PID 1 in Docker containers. A worker crash therefore also stops
-its FFmpeg child process. A file lock protects each job's attempt directory.
+Docker's init process runs as PID 1. The worker is its direct child. A worker
+crash ends the container and therefore stops its FFmpeg child process.
+A file lock protects each job's attempt directory.
 Recovery acquires that lock and rechecks the queue attempt before removing
 partial files or retrying work. It skips attempts that still hold the lock.
 
@@ -520,6 +521,224 @@ changes therefore do not invalidate the dependency-installation layer.
   maintenance recovery have not been repeated after the review fixes.
 - Added no automated tests or smoke scripts. These follow-up changes have not
   received a separate external review or run on GitHub CI.
+
+## Search implementation
+
+Status: both implementation batches are coded. The local model calls and the
+focused service workflow below are verified. The full five-video, 30-query
+quality comparison is not complete. Publication for review does not wait for
+that long-running check. No completed model work needs to run again.
+
+The user authorized a feature-branch push and a PR with an `@droid review`
+request. The user did not authorize a merge.
+
+### Scope
+
+- Finish local indexing and search, then connect both to the existing service.
+- Use the five local corpus videos and the user's latest 30 reference moments.
+- Keep the Desktop source files unchanged. Normalize the single invalid JSON
+  escape in the Sekiro reference in an ignored working copy.
+- Keep reference queries and evidence out of the media index.
+- Add no automated tests, smoke scripts, UI, cloud service, or vector database.
+- Include this plan in the PR so Droid can review the decisions and evidence.
+  Leave `context.md` unchanged.
+
+### Model and media decisions
+
+Use the official Sentence Transformers interface for `google/embeddinggemma-2`,
+pinned to model revision `914f7f89142e33e77833254d9c9b90c3cef7303b`.
+The model returns normalized 768-dimensional vectors, not timestamp answers.
+The application owns window boundaries and retains the original file clock.
+
+Use float32. The model documentation prohibits float16 because it can produce
+invalid or degraded vectors. Let the SDK choose the device unless the caller
+selects one. Query-only processes omit the vision and audio encoders.
+Release unused MPS allocator buffers after each indexed window. A real
+eight-second call retained about 1.1 GiB of reusable buffers after inference.
+The release leaves live model tensors in place and avoids keeping unused
+memory between windows.
+
+Use the `SearchQuery` prompt for text queries. Do not add text prompts, source
+filenames, reference answers, or generated captions to media inputs.
+
+Start with eight-second windows and a four-second stride. Decode visual frames
+at one frame per second with PyAV. Keep their actual presentation timestamps.
+Apply the source frame's display rotation before creating its image.
+Use a 140-token vision budget per frame and images no larger than 448 pixels
+per side. Decode the first audio stream with FFmpeg as mono float32 at 16 kHz.
+Pass frames and waveforms directly to the SDK. Do not create per-window MP4
+or WAV files.
+
+Extend the final window when the next window would contain less than one
+sampling interval. This avoids a separate millisecond-long tail caused by
+container durations that do not divide evenly into the stride.
+
+Store visual-only, audio-only, and combined vectors separately. This supports
+comparison and explicit search modes. A source without audio has only a
+visual view. Do not invent audio or silently switch to another model.
+
+These bounded windows fit the model's shared 8,192-token context. They are
+initial retrieval intervals, not exact event boundaries. Brief events can
+produce low temporal overlap even when the returned window contains the event.
+
+### Storage and retrieval decisions
+
+Reuse the local SQLite database for search metadata, vectors, and JPEG thumbnails.
+The current corpus does not justify another database or a vector extension.
+Use exact cosine ranking over normalized float32 vectors.
+
+Publish each video's complete index in one SQLite transaction. Failed work
+leaves the last complete index available. A per-video file lock prevents two
+workers from publishing competing indexes for the same source.
+Reuse an existing index only when its source hash, model profile, and window
+settings match.
+
+The `all` search mode uses each window's highest visual, audio, or combined
+score. Explicit modes expose each view separately. Suppress matches on the
+same video when they overlap at least half of the shorter interval.
+Scores are similarities, not confidence percentages. The API has an optional
+minimum score, but no claimed universal no-match threshold.
+
+### Service integration decisions
+
+Add an `index` job operation. Keep Procrastinate in charge of the queue,
+attempt counts, worker heartbeats, and bounded recovery.
+Use a dedicated `search` queue and one search worker so model work does not
+block the existing edit workers or load a model in every edit worker.
+The search worker uses the same shutdown and recovery rules as edit workers.
+
+Persist the model cache under the shared data directory in Compose.
+Use PyTorch's CPU wheels for Linux. Do not install CUDA dependencies in the
+local Docker workers. macOS uses the normal PyTorch package and can use MPS.
+
+The API exposes index metadata, search, stored JPEG thumbnails, and inline
+original playback. Playback URLs carry a media time fragment.
+The new playback route identifies MP4 from inspected container metadata.
+Other containers remain downloadable as bytes, without a false MP4 type.
+Browser codec support is still required.
+Reuse the existing clip operation for requested downloads instead of rendering
+every search result in advance.
+
+### Commands and API
+
+- `video-pipeline index PATH ... --data-dir DATA`: copy local videos into storage
+  and index them. Output includes their video IDs.
+- `video-pipeline index --video-id ID --data-dir DATA`: index an existing upload
+  or reuse an unchanged index. The flag can be repeated.
+- `video-pipeline search "QUERY" --data-dir DATA`: return ranked JSON matches.
+- `video-pipeline evaluate-search REFERENCE.json ... --data-dir DATA`: compare
+  all search modes with known reference moments. This is a quality measurement
+  command, not a pass/fail test suite.
+- `POST /videos/{id}/jobs` with `{"type":"index"}`: queue indexing. Window and
+  stride settings are optional.
+- `GET /videos/{id}/index`: retrieve the last complete index metadata.
+- `POST /search` with `{"query":"...", "mode":"all", "limit":5}`: search indexed
+  videos. Optional `video_ids` and `min_score` restrict results.
+- `GET /videos/{id}/index/thumbnails/{window}`: retrieve a result thumbnail.
+- `GET /videos/{id}/play`: stream the original with byte-range support.
+
+Local index and search commands do not require PostgreSQL. Queued indexing
+requires the existing database setup and the new Compose `search-worker`.
+
+### Verification plan
+
+1. Run real text, video, audio, and combined model calls on the M1 Mac.
+2. Index all five videos and compare all views against the 30 user-reviewed
+   moments. Report video selection and temporal overlap separately.
+3. Measure indexing cost, query latency, and memory use. Do not infer local
+   performance from published mobile benchmarks.
+4. Run the real HTTP workflow through an isolated PostgreSQL database and
+   Compose project. Preserve existing services and data.
+5. Verify no-audio input, rejected parameters, an indexing failure, unchanged
+   originals, persistent results, and reuse of an unchanged index.
+6. Retrieve thumbnails and byte ranges. Request, retrieve, inspect, and play a
+   clip from a search result.
+7. Run Ruff formatting and linting, ty, the package build, Docker builds, and
+   diff review. Add no automated tests or smoke checks.
+
+### Primary references
+
+- [EmbeddingGemma 2 model card](https://huggingface.co/google/embeddinggemma-2):
+  model revision, precision, prompts, dimensions, and context limits.
+- [Official multimodal guide](https://gemma.ai/models/embeddinggemma/multimodal/):
+  frame lists, waveform inputs, and combined inputs through Sentence Transformers.
+- [Google's Video Moments Finder](https://github.com/google-ai-edge/gallery/tree/main/Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/videomomentfinder):
+  a reference for timestamped local retrieval, not a copied Python backend.
+- [PyAV container API](https://pyav.org/docs/stable/api/container.html):
+  seek to a previous keyframe, then decode forward to the requested timestamp.
+- [QVHighlights](https://proceedings.neurips.cc/paper/2021/file/62e0973455fd26eb03e91d5741a4a3bb-Paper.pdf):
+  measure moment overlap, not only whether the correct video appears.
+
+### Local verification
+
+- Real text, audio, frame-list video, and combined inputs returned finite,
+  normalized 768-dimensional vectors on the M1 with float32.
+- Measured one eight-second window with the model already loaded:
+  visual 7.48 seconds, audio 1.12 seconds, and combined 7.49 seconds.
+  These figures are not a controlled hardware benchmark.
+- The same run used about 2,646 MiB peak process RSS. Metal driver allocation
+  reached about 4,869 MiB, then fell to about 3,748 MiB after releasing unused
+  buffers. These measures overlap and must not be added.
+- The Docker CPU search worker reached about 3.9 GiB resident memory during
+  indexing. Concurrent Docker and MPS model work caused memory pressure.
+  Subsequent model workflows run one at a time.
+- Uploaded a real six-second H.264/AAC MP4 through HTTP. Submission returned
+  `202`, progress changed during indexing, and the completed job exposed its
+  index JSON. A video-only copy also indexed successfully without audio vectors.
+- A mixed batch routed thumbnail work to the video queue and indexing work to
+  the search queue. An invalid batch returned `404` without creating its jobs.
+- Invalid stride, nonfinite window duration, blank query, zero result limit,
+  and a stride below 0.5 seconds returned `422`.
+- Found and fixed a real boundary failure: a 6.006-second source with a
+  two-second stride attempted to index an empty 6 ms tail. The final window
+  now includes that tail. The same source indexed successfully afterward.
+- Search returned video IDs, time ranges, scores, thumbnails, and playback URLs.
+  Measured one cold query at 9.69 seconds and the repeated warm query at
+  0.072 seconds on the CPU API process.
+- Retrieved a JPEG thumbnail and inspected its pixels. Original playback
+  returned `206` for a 1,024-byte range with an inline MP4 content type.
+  Downloaded original bytes matched the uploaded file.
+- Submitted the top title-search result to the existing clip operation.
+  Downloaded and inspected the resulting 2.006-second H.264/AAC MP4.
+  Played it through `ffplay`. A browser's media-fragment seeking was not checked.
+- Repeated indexing reused the same index in about 0.6 seconds. Temporarily
+  moved the isolated stored copy to exercise a missing-source failure.
+  That job failed once, the previous index remained unchanged, and the next
+  index request succeeded. Restored the copy immediately after the failure.
+- Restarted the API and retrieved identical index metadata.
+- Checked display rotation on an MP4 with a real 90-degree display matrix.
+  The sampled image had the expected portrait dimensions.
+- Re-read all 59 windows from the first two completed corpus indexes after
+  finalizing frame sampling. Their stored frame timestamps matched exactly.
+- Compared all four search modes against six reference queries in the first
+  indexed video. The combined and all modes returned overlapping top results
+  for all six queries. Mean interval IoU was 0.2924. Only one of six top
+  results reached IoU 0.5. This single-video comparison does not measure
+  selection across the complete corpus.
+- A separate two-second-window workflow ranked a title card above the girl
+  described in the query. Search quality is not perfect. Neither this miss
+  nor the single-video overlap results establish complete corpus accuracy.
+- Passed the final locked dependency sync, Ruff formatting and linting, ty,
+  package build, and diff whitespace checks before publication.
+  Docker image builds and the queued workflow also passed during implementation.
+- Added no automated tests or smoke scripts.
+
+### Limits at publication
+
+- Two of the five full corpus indexes are complete. The remaining local
+  indexing continues from existing stored video IDs. The 30-query comparison
+  is not yet available. Do not treat the PR as proof of complete search quality.
+- No cloud GPU was provisioned. No media or source code was sent to a cloud
+  inference provider.
+- Search returns sampled time windows, not exact event boundaries.
+  One-frame-per-second sampling can miss a brief event.
+- Scores are not calibrated confidence values. An unrelated query can still
+  receive ranked results unless the caller supplies a suitable minimum score.
+- Native model calls and the real queued workflow are verified. A full
+  three-crash recovery run was not repeated for the new indexing operation.
+  It uses the existing shared retry and stalled-task recovery paths.
+- The API restart retained the index and its metadata. Browser playback and
+  media-fragment seeking were not verified.
 
 ## Review loop
 

@@ -13,13 +13,22 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from video_pipeline.embeddings import Embedder
+from video_pipeline.inspection import inspect_video
 from video_pipeline.jobs import (
     BatchJobRequest,
     ClipOperation,
+    IndexOperation,
     JobRecord,
     JobStore,
     ProcessingOperation,
     database_url,
+)
+from video_pipeline.search import (
+    IndexRecord,
+    SearchRequest,
+    SearchResponse,
+    SearchStore,
 )
 from video_pipeline.storage import VideoRecord, VideoStore
 
@@ -31,13 +40,16 @@ class PrettyJSONResponse(JSONResponse):
         ).encode("utf-8")
 
 
-def create_app(data_dir: Path) -> FastAPI:
+def create_app(data_dir: Path, device: str | None = None) -> FastAPI:
     store = VideoStore(data_dir)
     jobs = JobStore(store.database_path, database_url())
+    search = SearchStore(data_dir)
+    embedder = Embedder(device, text_only=True)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         store.initialize()
+        search.initialize()
         jobs.open()
         try:
             jobs.require_schema()
@@ -98,6 +110,50 @@ def create_app(data_dir: Path) -> FastAPI:
             media_type="application/octet-stream",
         )
 
+    @app.get("/videos/{video_id}/play", response_class=FileResponse)
+    def play_original(video_id: UUID) -> FileResponse:
+        video = get_video(video_id)
+        path = store.original_path(video.id)
+        format_name = video.format_name
+        if format_name is None:
+            format_name = inspect_video(path).format_name
+        return FileResponse(
+            path,
+            filename=video.filename,
+            media_type=(
+                "video/mp4"
+                if "mp4" in (format_name or "").split(",")
+                else "application/octet-stream"
+            ),
+            content_disposition_type="inline",
+        )
+
+    @app.get("/videos/{video_id}/index")
+    def get_index(video_id: UUID) -> IndexRecord:
+        get_video(video_id)
+        record = search.get(video_id)
+        if record is None:
+            raise HTTPException(status_code=409, detail="Video has not been indexed.")
+        return record
+
+    @app.get("/videos/{video_id}/index/thumbnails/{window}")
+    def get_search_thumbnail(video_id: UUID, window: int) -> Response:
+        get_video(video_id)
+        thumbnail = search.thumbnail(video_id, window)
+        if thumbnail is None:
+            raise HTTPException(status_code=404, detail="Search thumbnail not found.")
+        return Response(thumbnail, media_type="image/jpeg")
+
+    @app.post("/search")
+    def search_videos(request: SearchRequest) -> SearchResponse:
+        if request.video_ids is not None:
+            for video_id in request.video_ids:
+                get_video(video_id)
+        try:
+            return search.search(request, embedder)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
     def validate_submission(video_id: UUID, operation: ProcessingOperation) -> None:
         video = get_video(video_id)
         if isinstance(operation, ClipOperation):
@@ -105,6 +161,13 @@ def create_app(data_dir: Path) -> FastAPI:
                 operation.validate_source_duration(video.duration_seconds)
             except ValueError as error:
                 raise HTTPException(status_code=422, detail=str(error)) from error
+        if isinstance(operation, IndexOperation) and (
+            video.duration_seconds is None or video.duration_seconds <= 0
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Indexing requires a video with a known positive duration.",
+            )
 
     @app.post("/videos/{video_id}/jobs", status_code=202)
     def create_job(
