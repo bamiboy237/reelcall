@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reelcall — Index and search videos by description</title>
+  <meta name="description" content="Index and search videos by quoting dialogue or describing scenes." />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="nav">
+      <p class="nav__brand">Reelcall</p>
+      <div class="nav__links">
+        <a class="link" href="https://github.com/bamiboy237/video-processing-pipeline#readme">Docs</a>
+        <a class="link" href="https://github.com/bamiboy237/video-processing-pipeline">GitHub</a>
+        <a class="btn btn--install" href="#install">Install</a>
+      </div>
+    </header>
+
+    <section class="hero">
+      <p class="hero__tagline">Index and search videos by quoting dialogue or describing scenes.</p>
+
+      <div class="install" id="install">
+        <div class="install__tabs" role="tablist" aria-label="Install method">
+          <button class="tab is-active" type="button" role="tab" aria-selected="true" data-tab="uv">uv</button>
+          <button class="tab" type="button" role="tab" aria-selected="false" data-tab="git">git</button>
+        </div>
+        <div class="install__command">
+          <p class="install__line">
+            <span class="install__prompt">$</span>
+            <span class="install__text" data-command="uv">uv tool install git+https://github.com/bamiboy237/video-processing-pipeline</span><span class="install__text" data-command="git" hidden>git clone https://github.com/bamiboy237/video-processing-pipeline &amp;&amp; cd video-processing-pipeline &amp;&amp; uv sync</span>
+          </p>
+          <button class="copy" type="button">
+            <span class="copy__label">copy</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="product">
+      <div class="demo">
+        <div class="terminal">
+          <div class="terminal__titlebar">
+            <span class="terminal__dot"></span>
+            <span class="terminal__dot"></span>
+            <span class="terminal__dot"></span>
+          </div>
+          <div class="terminal__screen">
+            <p class="terminal__label">Add video</p>
+            <div class="terminal__path">
+              <span>~/Videos/aots4ep5.mp4</span>
+              <span class="terminal__caret" aria-hidden="true"></span>
+            </div>
+            <div class="terminal__spacer"></div>
+            <div class="terminal__keys">
+              <span class="key"><kbd>⏎</kbd> add</span>
+              <span class="key"><kbd>esc</kbd> cancel</span>
+            </div>
+          </div>
+        </div>
+        <ol class="steps">
+          <li class="step is-active"><span class="step__index">1</span><span class="step__label">add</span></li>
+          <li class="step"><span class="step__index">2</span><span class="step__label">index</span></li>
+          <li class="step"><span class="step__index">3</span><span class="step__label">search</span></li>
+        </ol>
+      </div>
+    </section>
+
+    <hr class="rule" />
+
+    <section class="faq">
+      <h2 class="faq__title">Questions</h2>
+      <div class="faq__list">
+        <div class="faq__row">
+          <p class="faq__question">What do I need to install?</p>
+          <p class="faq__answer">Simply install the package and it guides you through the set up steps and what’s needed</p>
+        </div>
+        <div class="faq__row">
+          <p class="faq__question">Does it need a GPU?</p>
+          <p class="faq__answer">No, we run the EmbeddingGemma2 model (video variant) which runs fine on most modern CPUs</p>
+        </div>
+        <div class="faq__row">
+          <p class="faq__question">How does search work?</p>
+          <p class="faq__answer">Each video is cut into n-second windows that overlap by n seconds. Then the frames and sounds are embedded. When you run query, the model embeds your query and finds frames or sounds that closely match.</p>
+        </div>
+        <div class="faq__row">
+          <p class="faq__question">Where are my videos kept?</p>
+          <p class="faq__answer">You’ll decide an output folder during setup.</p>
+        </div>
+        <div class="faq__row">
+          <p class="faq__question">Which formats work?</p>
+          <p class="faq__answer">Anything FFmpeg can read: MP4, MOV, MKV, WebM and more.</p>
+        </div>
+        <div class="faq__row">
+          <p class="faq__question">Can I script it?</p>
+          <p class="faq__answer">Yes. reelcall -h lists the commands, and --json gives machine-readable output. There is an HTTP API as well.</p>
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule" />
+
+    <footer class="footer">
+      <div class="footer__links">
+        <p class="footer__brand">Reelcall</p>
+        <a class="link" href="https://github.com/bamiboy237/video-processing-pipeline">GitHub</a>
+        <a class="link" href="https://github.com/bamiboy237/video-processing-pipeline#readme">Docs</a>
+      </div>
+      <p class="footer__copy">©2026</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

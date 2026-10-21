@@ -5,3 +5,4 @@ dist/
 *.egg-info/
 outputs/
 /data/
+.DS_Store
