@@ -1,5 +1,5 @@
 [project]
-name = "video-pipeline"
+name = "reelcall"
 version = "0.1.0"
 description = "A video processing service with search by description."
 readme = "README.md"
@@ -26,7 +26,6 @@ dependencies = [
 
 [project.scripts]
 reelcall = "video_pipeline.cli:main"
-video-pipeline = "video_pipeline.cli:main"
 
 [build-system]
 requires = ["hatchling>=1.27,<2"]
