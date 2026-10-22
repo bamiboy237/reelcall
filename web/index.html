@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Reelcall</title>
-  <meta name="description" content="Search your videos the way you remember them. Reelcall indexes your library on your own machine and finds moments by description." />
+  <meta name="description" content="Reelcall builds a permanent index of your videos. You or your AI agents can find any scene or quote in plain language." />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#0d0c0b" />
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
@@ -19,7 +19,6 @@
       <img src="assets/logo.svg" width="20" height="20" alt="" />Reelcall
     </a>
     <nav aria-label="Primary">
-      <a class="nav-link" href="#how">How it works</a>
       <a class="nav-link" href="https://github.com/bamiboy237/reelcall">GitHub</a>
       <a class="install-link" href="#install">Install</a>
     </nav>
@@ -27,9 +26,9 @@
 
   <main>
     <section class="hero sheet">
-      <h1>Search your videos the way you remember them.</h1>
+      <h1>Index and search videos by quoting dialogue or describing scenes.</h1>
       <div class="hero-row">
-        <p class="lede">Reelcall indexes your library on your own machine. Describe what you saw or heard. It returns the timestamp, a thumbnail, and a clip you can play.</p>
+        <p class="lede">Reelcall builds a permanent index of your videos. You or your AI agents can then find any scene or quote by describing it in plain language.</p>
         <div class="install" id="install">
           <div class="command">
             <code translate="no"><span class="dollar">$</span> uv tool install git+https://github.com/<wbr>bamiboy237/<wbr>reelcall</code>
@@ -37,13 +36,13 @@
               <span class="copy-label">copy</span>
             </button>
           </div>
-          <p class="install-note">Then run <code translate="no">reelcall</code>. Requires FFmpeg and Docker.</p>
+          <p class="install-note">Then run <code translate="no">reelcall</code>. Needs FFmpeg and Docker.</p>
         </div>
       </div>
     </section>
 
     <section class="demo sheet has-results" aria-label="Demo" data-demo data-scene="search">
-      <p class="sr-only">A terminal demo of Reelcall. It adds witch-hat.mp4, indexes it in overlapping 8-second windows, searches for "the girl in a black witch hat", and plays the best match from 0:24.</p>
+      <p class="sr-only">Demo: Reelcall adds a video, indexes it, finds "the girl in a black witch hat", and plays the match at 0:24.</p>
 
       <div class="frame">
         <span class="corners" aria-hidden="true"></span>
@@ -57,7 +56,6 @@
             <div class="scene" data-scene-name="add">
               <p class="tui-head"><b>Add video</b></p>
               <p class="field"><span class="glyph">path</span><span data-type-path>~/Videos/witch-hat.mp4</span><span class="caret"></span></p>
-              <p class="faint">Any file FFmpeg can read. MP4, MOV, MKV, WebM.</p>
             </div>
 
             <div class="scene" data-scene-name="index">
@@ -69,8 +67,6 @@
                 <span class="faint row-meta" data-progress-text>window 0 of 7</span>
                 <span class="row-time">0:32</span>
               </div>
-              <p class="faint job-line">index job · attempt 1 of 3 · 1 frame per second</p>
-              <ol class="log" data-log></ol>
             </div>
 
             <div class="scene" data-scene-name="search">
@@ -97,7 +93,7 @@
                 </div>
                 <figure class="preview">
                   <img src="assets/demo-poster.jpg" alt="" width="640" height="360" />
-                  <figcaption class="faint">witch-hat.mp4 · 0:24</figcaption>
+                  <figcaption class="faint">0:24</figcaption>
                 </figure>
               </div>
             </div>
@@ -111,7 +107,7 @@
           <p class="keybar" data-keys><span><kbd>⏎</kbd>play</span><span><kbd>f</kbd>filter</span><span><kbd>/</kbd>edit</span><span><kbd>esc</kbd>back</span></p>
 
           <div class="rail">
-            <p class="rail-legend"><span>8 s windows, 4 s stride</span><span class="rail-file">witch-hat.mp4</span></p>
+            <p class="rail-legend"><span>8 s windows, 4 s stride</span></p>
             <div class="track">
               <div class="lanes">
                 <span class="win is-indexed" data-window style="--start: 0"></span>
@@ -134,68 +130,28 @@
       </div>
     </section>
 
-    <section class="how sheet" id="how" aria-labelledby="how-title">
-      <h2 id="how-title">How it works</h2>
-      <dl class="spec">
-        <div>
-          <dt>Stays on your machine</dt>
-          <dd>Videos, indexes, and the model run on your computer. Your library lives in a folder you choose.</dd>
-          <dd class="meta" translate="no">./data · --data-dir</dd>
-        </div>
-        <div>
-          <dt>Windows, not whole files</dt>
-          <dd>Each video becomes 8-second windows that overlap by 4 seconds. A moment never falls between two cuts.</dd>
-          <dd class="meta" translate="no">8 s window · 4 s stride · 1 frame/s</dd>
-        </div>
-        <div>
-          <dt>Three embeddings per window</dt>
-          <dd>EmbeddingGemma 2 embeds the frames, the audio, and both together. It runs on the CPU.</dd>
-          <dd class="meta" translate="no">visual · audio · combined · 768 dims</dd>
-        </div>
-        <div>
-          <dt>Search in plain words</dt>
-          <dd>Describe a scene or a sound. You get ranked moments with timestamps, thumbnails, and clips you can play.</dd>
-          <dd class="meta" translate="no">/ search · ⏎ play · f filter</dd>
-        </div>
-        <div>
-          <dt>A queue that recovers</dt>
-          <dd>Jobs run through a local queue. Failed jobs retry, and interrupted jobs pick up again when the workers restart.</dd>
-          <dd class="meta" translate="no">PostgreSQL · up to 3 attempts</dd>
-        </div>
-        <div>
-          <dt>Terminal first</dt>
-          <dd>Add, index, search, and play from the terminal UI. Scripts get a CLI with JSON output and an HTTP API.</dd>
-          <dd class="meta" translate="no">reelcall · reelcall -h · --json</dd>
-        </div>
-      </dl>
-    </section>
-
     <section class="questions sheet" aria-labelledby="questions-title">
       <h2 id="questions-title">Questions</h2>
       <dl>
         <div>
-          <dt>What do I need to install?</dt>
-          <dd>uv, FFmpeg, and Docker. On macOS, Reelcall starts Docker Desktop or OrbStack when it needs them.</dd>
-        </div>
-        <div>
           <dt>Does it need a GPU?</dt>
-          <dd>No. EmbeddingGemma 2 runs on the CPU.</dd>
-        </div>
-        <div>
-          <dt>Where are my videos kept?</dt>
-          <dd>In a <code>data</code> folder inside the directory where you launch Reelcall. Run <code>reelcall ui --data-dir</code> to choose another.</dd>
+          <dd>No. It runs on the CPU.</dd>
         </div>
         <div>
           <dt>Which formats work?</dt>
           <dd>Anything FFmpeg can read, including MP4, MOV, MKV, and WebM.</dd>
         </div>
         <div>
-          <dt>Can I script it?</dt>
-          <dd>Yes. <code>reelcall -h</code> lists the commands, and <code>--json</code> gives machine-readable output. There is an HTTP API as well.</dd>
+          <dt>Where are my videos stored?</dt>
+          <dd>In a <code>data</code> folder where you run <code>reelcall</code>. Use <code>--data-dir</code> to pick another.</dd>
         </div>
         <div>
-          <dt>Does it work with my coding agent?</dt>
-          <dd>Not yet. An MCP server is in progress. It will let agents like Claude Code search your library and check frames.</dd>
+          <dt>What if I close the app while it indexes?</dt>
+          <dd>Indexing continues. If a worker stops, its job runs again when the worker restarts.</dd>
+        </div>
+        <div>
+          <dt>Can I script it?</dt>
+          <dd>Yes. Search, index, and inspect print JSON with <code>--json</code>. <code>reelcall serve</code> starts an HTTP API.</dd>
         </div>
       </dl>
     </section>
@@ -203,7 +159,6 @@
 
   <footer class="footer sheet">
     <span class="footer-brand" translate="no">Reelcall</span>
-    <span class="footer-note">Local video search</span>
     <a href="https://github.com/bamiboy237/reelcall">GitHub</a>
     <span>©2026</span>
   </footer>

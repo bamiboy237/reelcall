@@ -568,36 +568,6 @@ h1 {
   transition: transform 300ms var(--ease-out);
 }
 
-.job-line {
-  padding-left: 12px;
-}
-
-/* One line per embedded window, as the worker finishes it. */
-.log {
-  margin: 0;
-  padding: 0 12px;
-  list-style: none;
-  color: var(--ink-2);
-}
-
-.log li {
-  display: grid;
-  grid-template-columns: 13ch 1fr;
-  gap: 2ch;
-  animation: line-in 240ms var(--ease-out);
-}
-
-.log li span:last-child {
-  color: var(--ink-3);
-}
-
-@keyframes line-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-}
-
 .results {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 240px;
@@ -807,56 +777,11 @@ h1 {
   opacity: 1;
 }
 
-/* How it works: a spec sheet, ruled like a table. */
+/* Section headings */
 h2 {
   margin-bottom: var(--s4);
   font: 500 var(--t-h2) / 1.2 var(--serif);
   letter-spacing: -0.02em;
-}
-
-.how {
-  padding-bottom: var(--s8);
-  scroll-margin-top: var(--s4);
-}
-
-.spec {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  border-top: 1px solid var(--rule-strong);
-}
-
-.spec > div {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s1);
-  padding: var(--s3) var(--s3) var(--s4);
-  border-bottom: 1px solid var(--rule);
-}
-
-.spec > div:nth-child(3n + 1) {
-  padding-left: 0;
-}
-
-.spec > div:not(:nth-child(3n + 1)) {
-  border-left: 1px solid var(--rule);
-}
-
-.spec dt {
-  color: var(--ink);
-}
-
-.spec dd {
-  font-size: 16px;
-  line-height: 1.55;
-  color: var(--ink-2);
-  text-wrap: pretty;
-}
-
-.spec .meta {
-  margin-top: auto;
-  padding-top: var(--s2);
-  font: 400 12px / 1.4 var(--mono);
-  color: var(--ink-3);
 }
 
 /* Questions */
@@ -891,7 +816,7 @@ h2 {
 
 .footer {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: 1fr auto auto;
   margin-bottom: var(--s5);
   border: 1px solid var(--rule);
   border-radius: 2px;
@@ -928,20 +853,6 @@ h2 {
   .preview {
     display: none;
   }
-
-  .spec {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .spec > div:nth-child(n) {
-    padding-left: var(--s3);
-    border-left: 1px solid var(--rule);
-  }
-
-  .spec > div:nth-child(odd) {
-    padding-left: 0;
-    border-left: 0;
-  }
 }
 
 @media (max-width: 720px) {
@@ -951,10 +862,6 @@ h2 {
 
   .nav nav {
     gap: var(--s1);
-  }
-
-  .nav-link[href="#how"] {
-    display: none;
   }
 
   /* Touch targets: nav and hero controls are at least 44px tall on a phone. */
@@ -995,7 +902,6 @@ h2 {
   }
 
   .demo,
-  .how,
   .questions {
     padding-bottom: var(--s7);
   }
@@ -1047,15 +953,8 @@ h2 {
     grid-template-columns: 2ch minmax(0, 1fr) 64px 4ch;
   }
 
-  .results-list > .faint,
-  .job-line,
-  .log {
+  .results-list > .faint {
     padding-left: 8px;
-  }
-
-  .log li {
-    grid-template-columns: 12ch 1fr;
-    gap: 1.5ch;
   }
 
   .keybar {
@@ -1069,30 +968,10 @@ h2 {
     font-size: 11px;
   }
 
-  .rail-file {
-    display: none;
-  }
-
-  .spec {
-    grid-template-columns: 1fr;
-  }
-
-  .spec > div:nth-child(n) {
-    padding: var(--s3) 0;
-    border-left: 0;
-  }
-
   .questions dl > div {
     grid-template-columns: 1fr;
   }
 
-  .footer {
-    grid-template-columns: 1fr auto auto;
-  }
-
-  .footer-note {
-    display: none;
-  }
 }
 
 /* Reduced motion: no typing, blinking, or scanning. The demo holds its search result. */

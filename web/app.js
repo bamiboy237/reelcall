@@ -32,7 +32,6 @@ const demo = document.querySelector("[data-demo]");
 
 if (demo && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
   const TRACK_SECONDS = 32;
-  const WINDOW_SECONDS = 8;
   const BEST_START = 24;
   const HIT_STARTS = [20, 4];
   const PATH_TEXT = "~/Videos/witch-hat.mp4";
@@ -52,7 +51,6 @@ if (demo && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
   const summaryEl = demo.querySelector("[data-summary]");
   const progressEl = demo.querySelector("[data-progress]");
   const progressText = demo.querySelector("[data-progress-text]");
-  const log = demo.querySelector("[data-log]");
   const scan = demo.querySelector("[data-scan]");
   const playhead = demo.querySelector("[data-playhead]");
   const playheadTime = demo.querySelector("[data-playhead-time]");
@@ -113,7 +111,6 @@ if (demo && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     summaryEl.textContent = "◐ 1";
     progressEl.style.setProperty("--progress", 0);
     progressText.textContent = `window 0 of ${windows.length}`;
-    log.replaceChildren();
   }
 
   function showAdd() {
@@ -130,14 +127,6 @@ if (demo && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         win.classList.add("is-indexed");
         progressEl.style.setProperty("--progress", (i + 1) / windows.length);
         progressText.textContent = `window ${i + 1} of ${windows.length}`;
-        const start = Number(win.style.getPropertyValue("--start"));
-        const line = document.createElement("li");
-        const span = document.createElement("span");
-        const vectors = document.createElement("span");
-        span.textContent = `${timecode(start)} – ${timecode(start + WINDOW_SECONDS)}`;
-        vectors.textContent = "visual · audio · combined";
-        line.append(span, vectors);
-        log.append(line);
       }, 500 + i * 520);
     });
     later(() => {

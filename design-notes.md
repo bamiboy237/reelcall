@@ -23,13 +23,12 @@ of the owner's agent-handoff page. It changes only `web/`.
 | --- | --- |
 | One accent, `#ff8a5b`, used only for the found moment: the best window, the playhead, and the caret. | The old peach also painted Install. A single meaning makes the accent read as information. |
 | Install is ink on ground, not peach. | Buttons stay monochrome. This follows agent-handoff. |
-| New headline: "Search your videos the way you remember them." | It states the benefit. "Quoting dialogue" overstated how audio search works. |
+| The headline stays "Index and search videos by quoting dialogue or describing scenes." The lede says Reelcall builds a permanent index that you or your AI agents search in plain language. | The owner chose this wording. Agent search depends on the MCP server, and quote search on audio embeddings, not transcripts. |
 | The lede and install command share one row under the headline. | Higher density. The demo window starts inside a 1440 × 900 first view. |
 | The demo reproduces Reelcall's real Textual UI: Library, the search field, the Moments list with span, file, and modality, and the real key bindings. | The page shows the product, not a generic terminal. |
 | The rail draws the real index geometry: 8-second windows on a 4-second stride, in two staggered lanes so the overlap shows. | Every mark measures something real. Indexing fills windows one at a time, search sweeps a scan line, the best window lights up, and the playhead follows the clip during playback. |
-| The index scene logs each window with its three embeddings. | It teaches visual, audio, and combined embeddings without extra prose. |
-| A "How it works" spec sheet: six cells in a ruled 3 × 2 table with a mono line of real parameters each. | Dense, factual, and not cards. No backgrounds, no radius, hairline rules only. |
-| Questions keep the 5fr/7fr grid. The MCP agent question says "Not yet". | The MCP server is in progress, so the page lists it as upcoming only. |
+| No "How it works" section. Each fact appears once: the hero, the install note, the demo, or one question. | The owner rejected repeated facts and copy that explains the design. The demo shows the workflow, so prose does not repeat it. |
+| Questions keep the 5fr/7fr grid and answer only what a user asks: GPU, formats, storage, closing the app, and scripting. | No roadmap entries and no internals such as PostgreSQL or embedding size. |
 | The footer is a ruled title block. | Borrowed from agent-handoff. |
 | No radial glow behind the demo. | The owner's rules forbid gradients. The window lifts with shadow and a hairline instead. |
 | The uv/git install tabs are gone. | One command is the install path. The README covers a Git checkout. |
