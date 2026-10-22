@@ -1,4 +1,4 @@
-# Video Processing Pipeline
+# Reelcall
 
 A video processing service with search by description.
 
@@ -47,4 +47,24 @@ access token. Reelcall passes it to the indexing worker.
 
 If you set `VIDEO_PIPELINE_DATABASE_URL`, Reelcall uses that connection without
 starting local containers. `reelcall ui --no-services` opens the app without
-Docker startup. `video-pipeline` remains an alias for `reelcall`.
+Docker startup.
+
+## Update an older install
+
+If `uv tool list` shows `video-pipeline`, remove the old tool before installing
+Reelcall:
+
+```sh
+uv tool uninstall video-pipeline
+uv tool install git+https://github.com/bamiboy237/video-processing-pipeline
+```
+
+Then run `reelcall` from your library's folder. The library files and Docker
+database stay in place.
+
+For an existing Git checkout, pull the changes and refresh its environment:
+
+```sh
+uv sync --locked --reinstall-package reelcall
+uv run reelcall
+```
