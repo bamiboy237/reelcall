@@ -6,3 +6,8 @@ dist/
 outputs/
 /data/
 .DS_Store
+
+# Local design tools. The website has no package or build dependencies.
+/.claude/
+/skills-lock.json
+/.impeccable/

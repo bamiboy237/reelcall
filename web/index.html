@@ -3,9 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#171916" />
+  <meta name="theme-color" content="#191715" />
   <title>Reelcall — Index and search videos by description</title>
   <meta name="description" content="Index and search videos by quoting dialogue or describing scenes." />
+  <link rel="preload" href="fonts/ibm-plex-serif-400-italic.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -19,7 +20,7 @@
     </header>
 
     <section class="hero">
-      <p class="hero__tagline">Index and search videos by quoting dialogue or describing scenes.</p>
+      <h1 class="hero__tagline">Index and search videos by quoting dialogue or describing scenes.</h1>
 
       <div class="install" id="install">
         <div class="install__tabs" role="tablist" aria-label="Install method">
@@ -41,10 +42,11 @@
     <section class="product">
       <div class="demo">
         <div class="terminal" data-demo aria-label="Demo: add a video, index it, search it, and play the matching clip">
-          <div class="terminal__titlebar">
+          <div class="terminal__titlebar" aria-hidden="true">
             <span class="terminal__dot"></span>
             <span class="terminal__dot"></span>
             <span class="terminal__dot"></span>
+            <span class="terminal__title">Reelcall</span>
           </div>
           <div class="terminal__screen">
             <div class="terminal__viewport">
@@ -83,6 +85,16 @@
             <div class="terminal__keys" data-demo-keys>
               <span class="key"><kbd>⏎</kbd><span>add</span></span>
               <span class="key"><kbd>esc</kbd><span>cancel</span></span>
+            </div>
+          </div>
+          <div class="timeline" aria-hidden="true">
+            <div class="timeline__track">
+              <div class="timeline__ticks">
+                <span>0:00</span><span>0:08</span><span>0:16</span><span>0:24</span><span>0:32</span>
+              </div>
+              <div class="timeline__position" data-playhead>
+                <span class="timeline__time">0:24</span>
+              </div>
             </div>
           </div>
         </div>
