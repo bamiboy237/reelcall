@@ -58,9 +58,16 @@ if (demo) {
   const results = demo.querySelector("[data-results]");
   const resultButton = demo.querySelector("[data-result]");
   const player = demo.querySelector("[data-player]");
+  const playhead = demo.querySelector("[data-playhead]");
+  const playheadTime = playhead?.querySelector(".timeline__time");
 
   const PATH_TEXT = "~/Videos/witch-hat.mp4";
   const QUERY_TEXT = "the girl in a black witch hat";
+  const MATCH_TIME = 24;
+  const TIMELINE_END = 32;
+  const SEARCH_DELAY = 600;
+  const QUERY_DELAY = 70;
+  const RESULT_DELAY = 600;
   const SCENE_KEYS = {
     add: [["⏎", "add"], ["esc", "cancel"]],
     index: [["…", "indexing"], ["esc", "cancel"]],
@@ -72,6 +79,15 @@ if (demo) {
   let timers = [];
   let cycleId = 0;
   let inView = false;
+  let searchScan;
+
+  function placePlayhead(seconds) {
+    searchScan?.cancel();
+    searchScan = null;
+    if (playhead) playhead.style.transform = `translateX(${seconds / TIMELINE_END * 100}%)`;
+    if (playheadTime) playheadTime.textContent = `0:${String(seconds).padStart(2, "0")}`;
+    demo.classList.remove("is-searching");
+  }
 
   function later(fn, ms) {
     timers.push(setTimeout(fn, ms));
@@ -81,9 +97,13 @@ if (demo) {
     cycleId++;
     for (const timer of timers) clearTimeout(timer);
     timers = [];
+    searchScan?.cancel();
+    searchScan = null;
+    demo.classList.remove("is-searching");
   }
 
   function setScene(name) {
+    demo.dataset.currentScene = name;
     for (const scene of scenes) {
       const active = scene.dataset.scene === name;
       scene.classList.toggle("is-active", active);
@@ -119,16 +139,28 @@ if (demo) {
 
   function showSearch() {
     setScene("search");
+    demo.classList.add("is-searching");
+    if (playhead) {
+      playhead.style.transform = `translateX(${MATCH_TIME / TIMELINE_END * 100}%)`;
+      searchScan = playhead.animate([
+        { transform: "translateX(0%)" },
+        { transform: playhead.style.transform },
+      ], { duration: SEARCH_DELAY + QUERY_TEXT.length * QUERY_DELAY + RESULT_DELAY, easing: "linear" });
+    }
     later(() => {
-      typeText(queryEl, QUERY_TEXT, 70, () => {
-        later(() => results?.classList.add("is-visible"), 600);
+      typeText(queryEl, QUERY_TEXT, QUERY_DELAY, () => {
+        later(() => {
+          results?.classList.add("is-visible");
+          placePlayhead(MATCH_TIME);
+        }, RESULT_DELAY);
         later(showPlay, 3400);
       });
-    }, 600);
+    }, SEARCH_DELAY);
   }
 
   function showPlay() {
     setScene("play");
+    placePlayhead(MATCH_TIME);
     if (player) {
       try { player.currentTime = 0; } catch { /* metadata not loaded yet */ }
       player.play()?.catch(() => {});
@@ -141,6 +173,8 @@ if (demo) {
     const gen = cycleId;
     const guard = (fn) => () => { if (gen === cycleId) fn(); };
     setScene("add");
+    demo.classList.remove("is-keyboard");
+    placePlayhead(0);
     if (pathEl) pathEl.textContent = "";
     if (queryEl) queryEl.textContent = "";
     results?.classList.remove("is-visible");
@@ -149,8 +183,9 @@ if (demo) {
     later(guard(() => typeText(pathEl, PATH_TEXT, 75, guard(() => later(guard(showIndex), 800)))), 650);
   }
 
-  resultButton?.addEventListener("click", () => {
+  resultButton?.addEventListener("click", (event) => {
     stopCycle();
+    demo.classList.toggle("is-keyboard", event.detail === 0);
     showPlay();
   });
 
@@ -160,6 +195,7 @@ if (demo) {
     if (queryEl) queryEl.textContent = QUERY_TEXT;
     results?.classList.add("is-visible");
     setScene("play");
+    placePlayhead(MATCH_TIME);
     player?.pause();
   } else if ("IntersectionObserver" in window) {
     const observer = new IntersectionObserver((entries) => {
