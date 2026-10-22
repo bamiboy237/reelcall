@@ -30,7 +30,7 @@
         <div class="install__command">
           <p class="install__line">
             <span class="install__prompt">$</span>
-            <span class="install__text" data-command="uv">uv tool install git+https://github.com/bamiboy237/video-processing-pipeline</span><span class="install__text" data-command="git" hidden>git clone https://github.com/bamiboy237/video-processing-pipeline &amp;&amp; cd video-processing-pipeline &amp;&amp; uv sync</span>
+            <span class="install__text" data-command="uv">uv tool install git+https://github.com/bamiboy237/video-processing-pipeline &amp;&amp; reelcall</span><span class="install__text" data-command="git" hidden>git clone https://github.com/bamiboy237/video-processing-pipeline &amp;&amp; cd video-processing-pipeline &amp;&amp; uv run reelcall</span>
           </p>
           <button class="copy" type="button">
             <span class="copy__label">copy</span>
@@ -108,7 +108,7 @@
       <div class="faq__list">
         <div class="faq__row">
           <p class="faq__question">What do I need to install?</p>
-          <p class="faq__answer">Install the package and FFmpeg. Docker runs the job service.</p>
+          <p class="faq__answer">Install uv, FFmpeg, and Docker. reelcall starts the job service.</p>
         </div>
         <div class="faq__row">
           <p class="faq__question">Does it need a GPU?</p>

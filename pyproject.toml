@@ -25,11 +25,32 @@ dependencies = [
 ]
 
 [project.scripts]
+reelcall = "video_pipeline.cli:main"
 video-pipeline = "video_pipeline.cli:main"
 
 [build-system]
-requires = ["uv_build>=0.11.31,<0.12"]
-build-backend = "uv_build"
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src/video_pipeline",
+    "/pyproject.toml",
+    "/uv.lock",
+    "/README.md",
+    "/Dockerfile",
+    "/compose.yaml",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/video_pipeline"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"compose.yaml" = "video_pipeline/_service/compose.yaml"
+"Dockerfile" = "video_pipeline/_service/Dockerfile"
+"pyproject.toml" = "video_pipeline/_service/pyproject.toml"
+"uv.lock" = "video_pipeline/_service/uv.lock"
+"README.md" = "video_pipeline/_service/README.md"
 
 [dependency-groups]
 dev = [

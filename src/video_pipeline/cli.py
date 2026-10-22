@@ -25,6 +25,7 @@ COMMANDS = (
     ("worker", "", "job worker"),
     ("init-jobs", "", "job database"),
     ("ui", "", "interactive"),
+    ("stop", "", "stop local services"),
 )
 METRICS = (
     ("video_at_1", "video@1"),
@@ -37,9 +38,7 @@ METRICS = (
 
 class Parser(argparse.ArgumentParser):
     def format_help(self) -> str:
-        return "\n".join(
-            root_help() if self.prog == "video-pipeline" else help_for(self)
-        )
+        return "\n".join(root_help() if self.prog == "reelcall" else help_for(self))
 
     def format_usage(self) -> str:
         return self.format_help()
@@ -78,7 +77,7 @@ def root_help() -> list[str]:
     hint = max(len(arguments) for _, arguments, _ in COMMANDS) + 3
     return [
         "",
-        *(f"  {line}" for line in term.wordmark("video pipeline")),
+        *(f"  {line}" for line in term.wordmark("reelcall")),
         "",
         *(
             f"  {out.text(term.pad(command, name))}"
@@ -86,7 +85,7 @@ def root_help() -> list[str]:
             for command, arguments, blurb in COMMANDS
         ),
         "",
-        f"  {out.faint('video-pipeline <command> -h')}",
+        f"  {out.faint('reelcall <command> -h')}",
         "",
     ]
 
@@ -235,7 +234,7 @@ def index(args: argparse.Namespace) -> None:
     from video_pipeline.search import IndexSettings
 
     if not args.paths and not args.video_id:
-        fail("nothing to index", "video-pipeline index <video>")
+        fail("nothing to index", "reelcall index <video>")
     settings = IndexSettings(
         window_seconds=args.window_seconds, stride_seconds=args.stride_seconds
     )
@@ -303,7 +302,7 @@ def search(args: argparse.Namespace) -> None:
         else:
             lines += [
                 f"  {out.muted('nothing indexed yet')}",
-                f"  {out.faint('video-pipeline index <video>')}",
+                f"  {out.faint('reelcall index <video>')}",
             ]
         term.emit(*lines, "")
         return
@@ -388,9 +387,28 @@ def worker(args: argparse.Namespace) -> None:
 
 
 def ui(args: argparse.Namespace) -> None:
+    import os
+
+    from video_pipeline.services import LocalService
+
+    if not args.no_services and not os.environ.get("VIDEO_PIPELINE_DATABASE_URL"):
+        with term.Activity("starting services"):
+            os.environ["VIDEO_PIPELINE_DATABASE_URL"] = LocalService(
+                args.data_dir
+            ).start()
+
     from video_pipeline.tui import run
 
     run(args.data_dir, args.device)
+
+
+def stop(args: argparse.Namespace) -> None:
+    from video_pipeline.services import LocalService
+
+    stopped = LocalService(args.data_dir).stop()
+    term.emit(
+        "", out.text("services stopped" if stopped else "no local services running"), ""
+    )
 
 
 def init_jobs(args: argparse.Namespace) -> None:
@@ -413,7 +431,7 @@ def init_jobs(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> Parser:
-    parser = Parser(prog="video-pipeline")
+    parser = Parser(prog="reelcall")
     commands = parser.add_subparsers(dest="command", parser_class=Parser)
 
     def command(name: str, handler: Any, *aliases: str) -> Parser:
@@ -486,6 +504,10 @@ def build_parser() -> Parser:
     sub = command("ui", ui)
     data_dir(sub)
     device(sub)
+    sub.add_argument("--no-services", action="store_true", help="skip Docker startup")
+
+    sub = command("stop", stop)
+    data_dir(sub)
     return parser
 
 

@@ -15,7 +15,8 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --locked --no-dev --no-editable --no-install-project
 COPY src/ src/
+COPY Dockerfile compose.yaml ./
 RUN uv sync --locked --no-dev --no-editable
 
-ENTRYPOINT ["/opt/venv/bin/video-pipeline"]
+ENTRYPOINT ["/opt/venv/bin/reelcall"]
 CMD ["worker", "--data-dir", "/data"]
