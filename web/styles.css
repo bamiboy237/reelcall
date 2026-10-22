@@ -617,21 +617,6 @@ h1 {
   outline: 1px solid var(--rule);
 }
 
-.keybar {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--s3);
-  padding: 10px var(--s4);
-  font: 400 12px / 1.2 var(--mono);
-  color: var(--ink-3);
-}
-
-.keybar kbd {
-  margin-right: 1ch;
-  font: inherit;
-  color: var(--ink);
-}
-
 /* The rail measures the clip. Every mark is real: one-second ticks, labels every
    eight seconds, and the overlapping windows Reelcall embeds. */
 .rail {
@@ -641,12 +626,6 @@ h1 {
   font: 400 12px / 16px var(--mono);
   font-variant-numeric: tabular-nums;
   color: var(--ink-3);
-}
-
-.rail-legend {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--s2);
 }
 
 .track {
@@ -955,12 +934,6 @@ h2 {
 
   .results-list > .faint {
     padding-left: 8px;
-  }
-
-  .keybar {
-    gap: var(--s2);
-    padding: 10px 14px;
-    font-size: 11px;
   }
 
   .rail {

@@ -36,15 +36,8 @@ if (demo && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
   const HIT_STARTS = [20, 4];
   const PATH_TEXT = "~/Videos/witch-hat.mp4";
   const QUERY_TEXT = "the girl in a black witch hat";
-  const KEYS = {
-    add: [["⏎", "add"], ["esc", "cancel"]],
-    index: [["a", "add"], ["/", "search"], ["⏎", "open"], ["!", "activity"]],
-    search: [["⏎", "play"], ["f", "filter"], ["/", "edit"], ["esc", "back"]],
-    play: [["space", "pause"], ["← →", "seek"], ["m", "mute"], ["esc", "back"]],
-  };
 
   const windows = [...demo.querySelectorAll("[data-window]")];
-  const keybar = demo.querySelector("[data-keys]");
   const pathEl = demo.querySelector("[data-type-path]");
   const queryEl = demo.querySelector("[data-type-query]");
   const stateEl = demo.querySelector("[data-state]");
@@ -73,15 +66,6 @@ if (demo && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
 
   function setScene(name) {
     demo.dataset.scene = name;
-    keybar.replaceChildren(
-      ...KEYS[name].map(([key, action]) => {
-        const item = document.createElement("span");
-        const kbd = document.createElement("kbd");
-        kbd.textContent = key;
-        item.append(kbd, action);
-        return item;
-      }),
-    );
   }
 
   function typeText(el, text, delay, done) {
