@@ -1,5 +1,74 @@
 # Reelcall look and feel
 
+## Current direction: edit bay (October 2026)
+
+The screening-room pass was warm and careful, but the page said too little.
+The demo was mostly empty screen, and the only content below it was the FAQ.
+This pass keeps the screening room's identity and adds the craft and density
+of the owner's agent-handoff page. It changes only `web/`.
+
+### What stays from the screening room
+
+- **Warm monochrome.** Warm near-black ground and ivory ink. It is now closer
+  to neutral: ground `#0d0c0b`, panel `#151412`, ink `#f0ebe3`, ink-2 `#b6afa5`,
+  ink-3 `#8f887e`. Every text color passes 5.2:1 on every surface.
+- **A serif display.** Instrument Serif, upright, sets the headline only.
+  Geist carries prose, navigation, and section headings. Paper Mono carries the
+  demo, commands, code, and timecodes. The owner chose this pairing. All three
+  are SIL OFL and self-hosted in `web/fonts/`.
+- **The real clip, the timecode rail, the static grain.**
+
+### What changed, and why
+
+| Change | Why |
+| --- | --- |
+| One accent, `#ff8a5b`, used only for the found moment: the best window, the playhead, and the caret. | The old peach also painted Install. A single meaning makes the accent read as information. |
+| Install is ink on ground, not peach. | Buttons stay monochrome. This follows agent-handoff. |
+| The headline stays "Index and search videos by quoting dialogue or describing scenes." The lede says Reelcall builds a permanent index that you or your AI agents search in plain language. | The owner chose this wording. Agent search depends on the MCP server, and quote search on audio embeddings, not transcripts. |
+| The lede and install command share one row under the headline. | Higher density. The demo window starts inside a 1440 × 900 first view. |
+| The demo reproduces Reelcall's real Textual UI: Library, the search field, the Moments list with span, file, and modality, and the real key bindings. | The page shows the product, not a generic terminal. |
+| The rail draws the real index geometry: 8-second windows on a 4-second stride, in two staggered lanes so the overlap shows. | Every mark measures something real. Indexing fills windows one at a time, search sweeps a scan line, the best window lights up, and the playhead follows the clip during playback. |
+| No "How it works" section. Each fact appears once: the hero, the install note, the demo, or one question. | The owner rejected repeated facts and copy that explains the design. The demo shows the workflow, so prose does not repeat it. |
+| Questions keep the 5fr/7fr grid and answer only what a user asks: GPU, formats, storage, closing the app, and scripting. | No roadmap entries and no internals such as PostgreSQL or embedding size. |
+| The footer is a ruled title block. | Borrowed from agent-handoff. |
+| No radial glow behind the demo. | The owner's rules forbid gradients. The window lifts with shadow and a hairline instead. |
+| The uv/git install tabs are gone. | One command is the install path. The README covers a Git checkout. |
+
+### Borrowed from agent-handoff
+
+- The 1120px sheet, 16px gutter, and 8px spacing scale.
+- Corner marks around the demo window. Here they are viewfinder brackets.
+- A transparent, Ghostty-style title bar with a system-font title.
+- Layered window light: white hairline edge, black outer ring, deep shadow,
+  and a 1px inner top highlight. Semi-transparent rules instead of opaque grays.
+- The command box with a copy label that blurs between "copy" and "copied".
+- Ink-on-ground primary button with a 0.97 press scale.
+- Questions as a two-column definition list, and the title-block footer.
+- A motion contract: transform and opacity only, UI feedback under 300ms,
+  hover only on fine pointers, and demo work paused when off screen.
+
+Not borrowed: Archivo, Paper Mono, measure blue, the drafting grid, the
+handoff diagram, the play button, and sound.
+
+### Motion
+
+- The demo loops while it is at least 35% visible and the tab is shown.
+- Scenes: add (type the path), index (seven windows), search (type the query,
+  sweep, rank), play (the real clip, with the playhead tracking `currentTime`).
+- Reduced motion runs no script. The static markup shows the ranked search
+  result with the best window and playhead at `0:24`.
+
+### Verification
+
+- Local Chrome at 1440 × 900 and 375 × 812, with no horizontal overflow.
+- Every scene exercised at both widths. The clip decodes and plays on both.
+- No console errors. Fonts load from `web/fonts/`.
+- Screenshots: `design-refs/redesign-1440.png` and `design-refs/redesign-375.png`.
+  Both are full-page captures with reduced motion, so the demo holds its search result.
+- Not checked: Safari, a physical phone, assistive technology, and native zoom.
+
+## History: screening room
+
 ## Scope
 
 This is a visual redesign of `web/` for a personal project shown to startup
@@ -22,10 +91,10 @@ Base: `2f4fa1a`, including the slower demo timing and removal of Docs links.
 - Derive borders and highlights from the same warm ink. Do not override the
   palette inside the demo. Peach belongs only to Install, the caret, the active
   search result, and the playhead. Focus and copy feedback stay neutral.
-- **Type:** self-hosted IBM Plex Serif italic for the headline, 64px desktop,
-  tight tracking and balanced lines. IBM Plex Sans for navigation, questions,
-  descriptions, and search language. Iosevka for commands, paths, filenames,
-  timecodes, and key hints.
+- **Type:** self-hosted Instrument Serif for the headline, about 88px desktop
+  and 46px mobile, tight tracking and balanced lines. Geist for navigation,
+  questions, descriptions, and search language. Paper Mono for commands, paths,
+  filenames, and timecodes.
 - **Terminal:** follow the requested Ghostty reference with a single dark
   surface, a thin frame, a compact centered window title, and unboxed command
   text. Native red, yellow, and green window dots are the only exception to the

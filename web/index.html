@@ -3,147 +3,161 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#191715" />
-  <title>Reelcall — Index and search videos by description</title>
-  <meta name="description" content="Index and search videos by quoting dialogue or describing scenes." />
-  <link rel="preload" href="fonts/ibm-plex-serif-400-italic.woff2" as="font" type="font/woff2" crossorigin />
+  <title>Reelcall</title>
+  <meta name="description" content="Reelcall builds a permanent index of your videos that you or your AI agents can search anytime." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0d0c0b" />
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
+  <link rel="preload" href="fonts/instrument-serif-400.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="fonts/paper-mono-variable.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="styles.css" />
+  <script src="app.js" defer></script>
 </head>
 <body>
-  <div class="page">
-    <header class="nav">
-      <p class="nav__brand">Reelcall</p>
-      <div class="nav__links">
-        <a class="link" href="https://github.com/bamiboy237/reelcall">GitHub</a>
-        <a class="btn btn--install" href="#install">Install</a>
-      </div>
-    </header>
+  <header class="nav sheet">
+    <a class="brand" href="./" translate="no">
+      <img src="assets/logo.svg" width="20" height="20" alt="" />Reelcall
+    </a>
+    <nav aria-label="Primary">
+      <a class="nav-link" href="https://github.com/bamiboy237/reelcall">GitHub</a>
+      <a class="install-link" href="#install">Install</a>
+    </nav>
+  </header>
 
-    <section class="hero">
-      <h1 class="hero__tagline">Index and search videos by quoting dialogue or describing scenes.</h1>
-
-      <div class="install" id="install">
-        <div class="install__tabs" role="tablist" aria-label="Install method">
-          <button class="tab is-active" type="button" role="tab" aria-selected="true" data-tab="uv">uv</button>
-          <button class="tab" type="button" role="tab" aria-selected="false" data-tab="git">git</button>
-        </div>
-        <div class="install__command">
-          <p class="install__line">
-            <span class="install__prompt">$</span>
-            <span class="install__text" data-command="uv">uv tool install git+https://github.com/bamiboy237/reelcall</span><span class="install__text" data-command="git" hidden>git clone https://github.com/bamiboy237/reelcall &amp;&amp; cd reelcall &amp;&amp; uv sync</span>
-          </p>
-          <button class="copy" type="button">
-            <span class="copy__label">copy</span>
-          </button>
+  <main>
+    <section class="hero sheet">
+      <h1>Index and search videos by quoting dialogue or describing scenes.</h1>
+      <div class="hero-row">
+        <p class="lede">Reelcall builds a permanent index of your videos that you or your AI agents can search anytime.</p>
+        <div class="install" id="install">
+          <div class="command">
+            <code translate="no"><span class="dollar">$</span> uv tool install git+https://github.com/<wbr>bamiboy237/<wbr>reelcall</code>
+            <button class="copy" type="button" data-copy="uv tool install git+https://github.com/bamiboy237/reelcall">
+              <span class="copy-label">copy</span>
+            </button>
+          </div>
+          <p class="install-note">Then run <code translate="no">reelcall</code>. Needs FFmpeg and Docker.</p>
         </div>
       </div>
     </section>
 
-    <section class="product">
-      <div class="demo">
-        <div class="terminal" data-demo aria-label="Demo: add a video, index it, search it, and play the matching clip">
-          <div class="terminal__titlebar" aria-hidden="true">
-            <span class="terminal__dot"></span>
-            <span class="terminal__dot"></span>
-            <span class="terminal__dot"></span>
-            <span class="terminal__title">Reelcall</span>
+    <section class="demo sheet has-results" aria-label="Demo" data-demo data-scene="search">
+      <p class="sr-only">Demo: Reelcall adds a video, indexes it, finds "the girl in a black witch hat", and plays the match at 0:24.</p>
+
+      <div class="frame">
+        <span class="corners" aria-hidden="true"></span>
+        <div class="window" aria-hidden="true" translate="no">
+          <div class="chrome">
+            <span class="lights"><i></i><i></i><i></i></span>
+            <span class="window-title">reelcall</span>
           </div>
-          <div class="terminal__screen">
-            <div class="terminal__viewport">
-              <section class="scene is-active" data-scene="add">
-                <div class="field">
-                  <span data-type-path></span><span class="terminal__caret" aria-hidden="true"></span>
-                </div>
-                <p class="scene__note">MP4 · MOV · MKV · WebM</p>
-              </section>
-              <section class="scene" data-scene="index" aria-hidden="true">
-                <ul class="status">
-                  <li><span class="status__mark">✓</span>Added witch-hat.mp4</li>
-                  <li>Splitting into overlapping windows…</li>
-                  <li>Embedding frames and audio…</li>
-                </ul>
-                <div class="progress"><div class="progress__fill" data-progress></div></div>
-              </section>
-              <section class="scene" data-scene="search" aria-hidden="true">
-                <div class="field">
-                  <span data-type-query></span><span class="terminal__caret" aria-hidden="true"></span>
-                </div>
-                <div class="results" data-results>
-                  <button class="result" type="button" data-result>
-                    <img class="result__thumb" src="assets/demo-poster.jpg" alt="" width="112" height="63" />
-                    <span class="result__title">witch-hat.mp4</span>
-                    <span class="result__time">0:24</span>
+
+          <div class="screen">
+            <div class="scene" data-scene-name="add">
+              <p class="tui-head"><b>Add video</b></p>
+              <p class="field"><span class="glyph">path</span><span data-type-path>~/Videos/witch-hat.mp4</span><span class="caret"></span></p>
+            </div>
+
+            <div class="scene" data-scene-name="index">
+              <p class="tui-head"><b>Library</b><span class="faint" data-summary>◐ 1</span></p>
+              <div class="row is-selected">
+                <span class="state" data-state>◐</span>
+                <span class="row-name">witch-hat.mp4</span>
+                <span class="bar"><span class="bar-fill" data-progress></span></span>
+                <span class="faint row-meta" data-progress-text>window 0 of 7</span>
+                <span class="row-time">0:32</span>
+              </div>
+            </div>
+
+            <div class="scene" data-scene-name="search">
+              <p class="tui-head"><b>Search</b><span class="faint">3 moments</span></p>
+              <p class="field"><span class="glyph">⌕</span><span data-type-query>the girl in a black witch hat</span><span class="caret"></span></p>
+              <div class="results" data-results>
+                <div class="results-list">
+                  <p class="faint">Moments</p>
+                  <button class="row is-selected" type="button" data-result tabindex="-1">
+                    <span class="row-span">0:24 – 0:32</span>
+                    <span class="row-name">witch-hat.mp4</span>
+                    <span class="faint row-meta">combined</span>
                   </button>
-                  <p class="results__count">1 result</p>
+                  <p class="row">
+                    <span class="row-span">0:20 – 0:28</span>
+                    <span class="row-name">witch-hat.mp4</span>
+                    <span class="faint row-meta">visual</span>
+                  </p>
+                  <p class="row">
+                    <span class="row-span">0:04 – 0:12</span>
+                    <span class="row-name">witch-hat.mp4</span>
+                    <span class="faint row-meta">audio</span>
+                  </p>
                 </div>
-              </section>
-              <section class="scene" data-scene="play" aria-hidden="true">
-                <video class="player" data-player src="assets/demo-clip.mp4" poster="assets/demo-poster.jpg" muted playsinline preload="metadata" controls></video>
-                <p class="player__caption">witch-hat.mp4 · 0:24–0:29</p>
-              </section>
+                <figure class="preview">
+                  <img src="assets/demo-poster.jpg" alt="" width="640" height="360" />
+                  <figcaption class="faint">0:24</figcaption>
+                </figure>
+              </div>
             </div>
-            <div class="terminal__keys" data-demo-keys>
-              <span class="key"><kbd>⏎</kbd><span>add</span></span>
-              <span class="key"><kbd>esc</kbd><span>cancel</span></span>
+
+            <div class="scene" data-scene-name="play">
+              <p class="tui-head"><b>witch-hat.mp4</b><span class="faint" data-player-time>0:24 / 0:32</span></p>
+              <video class="player" data-player src="assets/demo-clip.mp4" poster="assets/demo-poster.jpg" muted playsinline loop preload="metadata"></video>
             </div>
           </div>
-          <div class="timeline" aria-hidden="true">
-            <div class="timeline__track">
-              <div class="timeline__ticks">
-                <span>0:00</span><span>0:08</span><span>0:16</span><span>0:24</span><span>0:32</span>
+
+          <div class="rail">
+            <div class="track">
+              <div class="lanes">
+                <span class="win is-indexed" data-window style="--start: 0"></span>
+                <span class="win is-hit" data-window style="--start: 4"></span>
+                <span class="win is-indexed" data-window style="--start: 8"></span>
+                <span class="win is-indexed" data-window style="--start: 12"></span>
+                <span class="win is-indexed" data-window style="--start: 16"></span>
+                <span class="win is-hit" data-window style="--start: 20"></span>
+                <span class="win is-best" data-window style="--start: 24"></span>
               </div>
-              <div class="timeline__position" data-playhead>
-                <span class="timeline__time">0:24</span>
+              <div class="ticks"></div>
+              <div class="tick-labels">
+                <span style="--at: 0">0:00</span><span style="--at: 8">0:08</span><span style="--at: 16">0:16</span><span style="--at: 24">0:24</span><span style="--at: 32">0:32</span>
               </div>
+              <div class="scan" data-scan></div>
+              <div class="playhead" data-playhead><span data-playhead-time>0:24</span></div>
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <hr class="rule" />
-
-    <section class="faq">
-      <h2 class="faq__title">Questions</h2>
-      <div class="faq__list">
-        <div class="faq__row">
-          <p class="faq__question">What do I need to install?</p>
-          <p class="faq__answer">Install uv, FFmpeg, and Docker. reelcall starts the job service.</p>
+    <section class="questions sheet" aria-labelledby="questions-title">
+      <h2 id="questions-title">Questions</h2>
+      <dl>
+        <div>
+          <dt>Does it need a GPU?</dt>
+          <dd>No. It runs on the CPU.</dd>
         </div>
-        <div class="faq__row">
-          <p class="faq__question">Does it need a GPU?</p>
-          <p class="faq__answer">No. EmbeddingGemma 2 runs on the CPU.</p>
+        <div>
+          <dt>Which formats work?</dt>
+          <dd>Anything FFmpeg can read, including MP4, MOV, MKV, and WebM.</dd>
         </div>
-        <div class="faq__row">
-          <p class="faq__question">How does search work?</p>
-          <p class="faq__answer">Reelcall indexes overlapping video sections and compares your query with their frames and audio.</p>
+        <div>
+          <dt>Where are my videos stored?</dt>
+          <dd>In a <code>data</code> folder where you run <code>reelcall</code>. Use <code>--data-dir</code> to pick another.</dd>
         </div>
-        <div class="faq__row">
-          <p class="faq__question">Where are my videos kept?</p>
-          <p class="faq__answer">In the data folder you choose.</p>
+        <div>
+          <dt>What if I close the app while it indexes?</dt>
+          <dd>Indexing continues. If a worker stops, its job runs again when the worker restarts.</dd>
         </div>
-        <div class="faq__row">
-          <p class="faq__question">Which formats work?</p>
-          <p class="faq__answer">Anything FFmpeg can read: MP4, MOV, MKV, WebM and more.</p>
+        <div>
+          <dt>Can I script it?</dt>
+          <dd>Yes. Search, index, and inspect print JSON with <code>--json</code>. <code>reelcall serve</code> starts an HTTP API.</dd>
         </div>
-        <div class="faq__row">
-          <p class="faq__question">Can I script it?</p>
-          <p class="faq__answer">Yes. reelcall -h lists the commands, and --json gives machine-readable output. There is an HTTP API as well.</p>
-        </div>
-      </div>
+      </dl>
     </section>
+  </main>
 
-    <hr class="rule" />
-
-    <footer class="footer">
-      <div class="footer__links">
-        <p class="footer__brand">Reelcall</p>
-        <a class="link" href="https://github.com/bamiboy237/reelcall">GitHub</a>
-      </div>
-      <p class="footer__copy">©2026</p>
-    </footer>
-  </div>
-
-  <script src="app.js"></script>
+  <footer class="footer sheet">
+    <span class="footer-brand" translate="no">Reelcall</span>
+    <a href="https://github.com/bamiboy237/reelcall">GitHub</a>
+    <span>©2026</span>
+  </footer>
 </body>
 </html>
