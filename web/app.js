@@ -1,218 +1,211 @@
-// Install command tabs (uv / git): swap which command line is shown.
-const tabs = document.querySelectorAll(".tab");
-const commandLines = document.querySelectorAll("[data-command]");
+// Copy the install command. The label blurs between "copy" and "copied".
+for (const button of document.querySelectorAll("[data-copy]")) {
+  const label = button.querySelector(".copy-label");
+  let resetTimer;
 
-for (const tab of tabs) {
-  tab.addEventListener("click", () => {
-    const target = tab.dataset.tab;
-    if (tab.classList.contains("is-active")) return;
+  const swap = (text) => {
+    label.classList.add("swapping");
+    setTimeout(() => {
+      label.textContent = text;
+      label.classList.remove("swapping");
+    }, 120);
+  };
 
-    for (const other of tabs) {
-      const isTarget = other === tab;
-      other.classList.toggle("is-active", isTarget);
-      other.setAttribute("aria-selected", String(isTarget));
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(button.dataset.copy);
+      swap("copied");
+    } catch {
+      swap(/Mac|iPhone|iPad/.test(navigator.platform) ? "press ⌘C" : "press Ctrl+C");
     }
-    for (const line of commandLines) {
-      line.hidden = line.dataset.command !== target;
-    }
+    clearTimeout(resetTimer);
+    resetTimer = setTimeout(() => swap("copy"), 1600);
   });
 }
 
-// Copy install command to the clipboard, with a short text swap for feedback.
-const copyButton = document.querySelector(".copy");
-const copyLabel = copyButton?.querySelector(".copy__label");
-let copyResetTimer;
-
-copyButton?.addEventListener("click", async () => {
-  const activeLine = document.querySelector("[data-command]:not([hidden])");
-  const command = activeLine?.textContent ?? "";
-
-  try {
-    await navigator.clipboard.writeText(command);
-  } catch {
-    return;
-  }
-
-  copyButton.classList.add("is-copied");
-  if (copyLabel) copyLabel.textContent = "copied";
-
-  clearTimeout(copyResetTimer);
-  copyResetTimer = setTimeout(() => {
-    copyButton.classList.remove("is-copied");
-    if (copyLabel) copyLabel.textContent = "copy";
-  }, 1500);
-});
-
-// Product demo: one terminal pane auto-plays add -> index -> search -> play.
-// Marketing/explanatory motion, so it loops while on screen. It pauses when
-// off-screen or the tab is hidden, and renders a static final scene when
-// the user prefers reduced motion.
+// The demo replays one session of Reelcall's terminal UI on a loop:
+//   add a video, index it in overlapping windows, search, play the best match.
+// The rail under the screen measures the same clip, so each step marks it.
+// It runs only while on screen. With reduced motion it holds the search result,
+// which is the page's static markup.
 const demo = document.querySelector("[data-demo]");
 
-if (demo) {
-  const scenes = demo.querySelectorAll("[data-scene]");
-  const keyEls = demo.querySelectorAll("[data-demo-keys] .key");
-  const pathEl = demo.querySelector("[data-type-path]");
-  const queryEl = demo.querySelector("[data-type-query]");
-  const progress = demo.querySelector("[data-progress]");
-  const results = demo.querySelector("[data-results]");
-  const resultButton = demo.querySelector("[data-result]");
-  const player = demo.querySelector("[data-player]");
-  const playhead = demo.querySelector("[data-playhead]");
-  const playheadTime = playhead?.querySelector(".timeline__time");
-
+if (demo && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  const TRACK_SECONDS = 32;
+  const WINDOW_SECONDS = 8;
+  const BEST_START = 24;
+  const HIT_STARTS = [20, 4];
   const PATH_TEXT = "~/Videos/witch-hat.mp4";
   const QUERY_TEXT = "the girl in a black witch hat";
-  const MATCH_TIME = 24;
-  const TIMELINE_END = 32;
-  const SEARCH_DELAY = 600;
-  const QUERY_DELAY = 70;
-  const RESULT_DELAY = 600;
-  const SCENE_KEYS = {
+  const KEYS = {
     add: [["⏎", "add"], ["esc", "cancel"]],
-    index: [["…", "indexing"], ["esc", "cancel"]],
-    search: [["⏎", "search"], ["esc", "clear"]],
-    play: [["space", "pause"], ["esc", "back"]],
+    index: [["a", "add"], ["/", "search"], ["⏎", "open"], ["!", "activity"]],
+    search: [["⏎", "play"], ["f", "filter"], ["/", "edit"], ["esc", "back"]],
+    play: [["space", "pause"], ["← →", "seek"], ["m", "mute"], ["esc", "back"]],
   };
 
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const windows = [...demo.querySelectorAll("[data-window]")];
+  const keybar = demo.querySelector("[data-keys]");
+  const pathEl = demo.querySelector("[data-type-path]");
+  const queryEl = demo.querySelector("[data-type-query]");
+  const stateEl = demo.querySelector("[data-state]");
+  const summaryEl = demo.querySelector("[data-summary]");
+  const progressEl = demo.querySelector("[data-progress]");
+  const progressText = demo.querySelector("[data-progress-text]");
+  const log = demo.querySelector("[data-log]");
+  const scan = demo.querySelector("[data-scan]");
+  const playhead = demo.querySelector("[data-playhead]");
+  const playheadTime = demo.querySelector("[data-playhead-time]");
+  const resultButton = demo.querySelector("[data-result]");
+  const player = demo.querySelector("[data-player]");
+  const playerTime = demo.querySelector("[data-player-time]");
+
   let timers = [];
-  let cycleId = 0;
+  let scanAnimation;
   let inView = false;
-  let searchScan;
+
+  const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+  const timecode = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+  const windowAt = (start) => windows.find((win) => Number(win.style.getPropertyValue("--start")) === start);
 
   function placePlayhead(seconds) {
-    searchScan?.cancel();
-    searchScan = null;
-    if (playhead) playhead.style.transform = `translateX(${seconds / TIMELINE_END * 100}%)`;
-    if (playheadTime) playheadTime.textContent = `0:${String(seconds).padStart(2, "0")}`;
-    demo.classList.remove("is-searching");
-  }
-
-  function later(fn, ms) {
-    timers.push(setTimeout(fn, ms));
-  }
-
-  function stopCycle() {
-    cycleId++;
-    for (const timer of timers) clearTimeout(timer);
-    timers = [];
-    searchScan?.cancel();
-    searchScan = null;
-    demo.classList.remove("is-searching");
+    playhead.style.transform = `translateX(${(seconds / TRACK_SECONDS) * 100}%)`;
+    playheadTime.textContent = timecode(seconds);
   }
 
   function setScene(name) {
-    demo.dataset.currentScene = name;
-    for (const scene of scenes) {
-      const active = scene.dataset.scene === name;
-      scene.classList.toggle("is-active", active);
-      scene.setAttribute("aria-hidden", String(!active));
-    }
-    const keys = SCENE_KEYS[name];
-    if (keys) {
-      keyEls.forEach((keyEl, i) => {
-        const [kbd, text] = keys[i] ?? ["", ""];
-        const kbdEl = keyEl.querySelector("kbd");
-        const textEl = keyEl.querySelector("span");
-        if (kbdEl) kbdEl.textContent = kbd;
-        if (textEl) textEl.textContent = text;
-      });
-    }
+    demo.dataset.scene = name;
+    keybar.replaceChildren(
+      ...KEYS[name].map(([key, action]) => {
+        const item = document.createElement("span");
+        const kbd = document.createElement("kbd");
+        kbd.textContent = key;
+        item.append(kbd, action);
+        return item;
+      }),
+    );
   }
 
   function typeText(el, text, delay, done) {
-    let i = 0;
+    let typed = 0;
     const step = () => {
-      el.textContent = text.slice(0, ++i);
-      if (i < text.length) later(step, delay);
-      else if (done) done();
+      el.textContent = text.slice(0, ++typed);
+      later(typed < text.length ? step : done, typed < text.length ? delay : 0);
     };
     later(step, delay);
   }
 
-  function showIndex() {
-    setScene("index");
-    later(() => progress?.classList.add("is-running"), 60);
-    later(showSearch, 4000);
+  function stop() {
+    for (const timer of timers) clearTimeout(timer);
+    timers = [];
+    scanAnimation?.cancel();
+    demo.classList.remove("is-scanning");
+    player.pause();
   }
 
+  function reset() {
+    stop();
+    demo.classList.remove("has-results");
+    for (const win of windows) win.classList.remove("is-indexed", "is-hit", "is-best");
+    pathEl.textContent = "";
+    queryEl.textContent = "";
+    stateEl.textContent = "◐";
+    summaryEl.textContent = "◐ 1";
+    progressEl.style.setProperty("--progress", 0);
+    progressText.textContent = `window 0 of ${windows.length}`;
+    log.replaceChildren();
+  }
+
+  function showAdd() {
+    reset();
+    setScene("add");
+    typeText(pathEl, PATH_TEXT, 70, () => later(showIndex, 900));
+  }
+
+  // One window is embedded at a time, left to right, as the worker does it.
+  function showIndex() {
+    setScene("index");
+    windows.forEach((win, i) => {
+      later(() => {
+        win.classList.add("is-indexed");
+        progressEl.style.setProperty("--progress", (i + 1) / windows.length);
+        progressText.textContent = `window ${i + 1} of ${windows.length}`;
+        const start = Number(win.style.getPropertyValue("--start"));
+        const line = document.createElement("li");
+        const span = document.createElement("span");
+        const vectors = document.createElement("span");
+        span.textContent = `${timecode(start)} – ${timecode(start + WINDOW_SECONDS)}`;
+        vectors.textContent = "visual · audio · combined";
+        line.append(span, vectors);
+        log.append(line);
+      }, 500 + i * 520);
+    });
+    later(() => {
+      stateEl.textContent = "●";
+      summaryEl.textContent = "";
+    }, 500 + windows.length * 520);
+    later(showSearch, 1400 + windows.length * 520);
+  }
+
+  // The query is compared with every window; the scan line sweeps the clip.
   function showSearch() {
     setScene("search");
-    demo.classList.add("is-searching");
-    if (playhead) {
-      playhead.style.transform = `translateX(${MATCH_TIME / TIMELINE_END * 100}%)`;
-      searchScan = playhead.animate([
-        { transform: "translateX(0%)" },
-        { transform: playhead.style.transform },
-      ], { duration: SEARCH_DELAY + QUERY_TEXT.length * QUERY_DELAY + RESULT_DELAY, easing: "linear" });
-    }
     later(() => {
-      typeText(queryEl, QUERY_TEXT, QUERY_DELAY, () => {
-        later(() => {
-          results?.classList.add("is-visible");
-          placePlayhead(MATCH_TIME);
-        }, RESULT_DELAY);
-        later(showPlay, 3400);
+      typeText(queryEl, QUERY_TEXT, 65, () => {
+        demo.classList.add("is-scanning");
+        scanAnimation = scan.animate([{ transform: "translateX(0%)" }, { transform: "translateX(100%)" }], {
+          duration: 1100,
+          easing: "cubic-bezier(0.65, 0, 0.35, 1)",
+        });
+        scanAnimation.onfinish = () => {
+          demo.classList.remove("is-scanning");
+          for (const start of HIT_STARTS) windowAt(start)?.classList.add("is-hit");
+          windowAt(BEST_START)?.classList.add("is-best");
+          placePlayhead(BEST_START);
+          demo.classList.add("has-results");
+          later(showPlay, 3600);
+        };
       });
-    }, SEARCH_DELAY);
+    }, 500);
   }
 
   function showPlay() {
+    stop();
     setScene("play");
-    placePlayhead(MATCH_TIME);
-    if (player) {
-      try { player.currentTime = 0; } catch { /* metadata not loaded yet */ }
-      player.play()?.catch(() => {});
+    placePlayhead(BEST_START);
+    try {
+      player.currentTime = 0;
+    } catch {
+      // Metadata has not loaded yet; playback starts from the beginning anyway.
     }
-    later(() => { if (inView) startCycle(); }, 8500);
+    player.play()?.catch(() => {});
+    later(() => {
+      if (inView) showAdd();
+    }, 9000);
   }
 
-  function startCycle() {
-    stopCycle();
-    const gen = cycleId;
-    const guard = (fn) => () => { if (gen === cycleId) fn(); };
-    setScene("add");
-    demo.classList.remove("is-keyboard");
-    placePlayhead(0);
-    if (pathEl) pathEl.textContent = "";
-    if (queryEl) queryEl.textContent = "";
-    results?.classList.remove("is-visible");
-    progress?.classList.remove("is-running");
-    player?.pause();
-    later(guard(() => typeText(pathEl, PATH_TEXT, 75, guard(() => later(guard(showIndex), 800)))), 650);
-  }
-
-  resultButton?.addEventListener("click", (event) => {
-    stopCycle();
-    demo.classList.toggle("is-keyboard", event.detail === 0);
-    showPlay();
+  // The playhead follows the clip, offset to where the match starts in the source.
+  player.addEventListener("timeupdate", () => {
+    if (demo.dataset.scene !== "play") return;
+    const seconds = BEST_START + player.currentTime;
+    placePlayhead(seconds);
+    playerTime.textContent = `${timecode(seconds)} / ${timecode(TRACK_SECONDS)}`;
   });
 
-  if (reduceMotion) {
-    // Static final scene: query and result visible, clip paused with controls.
-    if (pathEl) pathEl.textContent = PATH_TEXT;
-    if (queryEl) queryEl.textContent = QUERY_TEXT;
-    results?.classList.add("is-visible");
-    setScene("play");
-    placePlayhead(MATCH_TIME);
-    player?.pause();
-  } else if ("IntersectionObserver" in window) {
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.target !== demo) continue;
-        inView = entry.isIntersecting;
-        if (inView) startCycle();
-        else { stopCycle(); player?.pause(); }
-      }
-    }, { threshold: 0.35 });
-    observer.observe(demo);
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) { stopCycle(); player?.pause(); }
-      else if (inView) startCycle();
-    });
-  } else {
-    inView = true;
-    startCycle();
-  }
+  resultButton.addEventListener("click", showPlay);
+
+  const update = () => {
+    if (inView && !document.hidden) showAdd();
+    else stop();
+  };
+
+  new IntersectionObserver(
+    ([entry]) => {
+      if (entry.isIntersecting === inView) return;
+      inView = entry.isIntersecting;
+      update();
+    },
+    { threshold: 0.35 },
+  ).observe(demo);
+  document.addEventListener("visibilitychange", update);
 }

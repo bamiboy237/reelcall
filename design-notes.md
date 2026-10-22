@@ -1,5 +1,74 @@
 # Reelcall look and feel
 
+## Current direction: edit bay (October 2026)
+
+The screening-room pass was warm and careful, but the page said too little.
+The demo was mostly empty screen, and the only content below it was the FAQ.
+This pass keeps the screening room's identity and adds the craft and density
+of the owner's agent-handoff page. It changes only `web/`.
+
+### What stays from the screening room
+
+- **Warm monochrome.** Warm near-black ground and ivory ink. It is now closer
+  to neutral: ground `#0d0c0b`, panel `#151412`, ink `#f0ebe3`, ink-2 `#b6afa5`,
+  ink-3 `#8f887e`. Every text color passes 5.2:1 on every surface.
+- **IBM Plex Serif italic display.** agent-handoff's design notes name italic
+  serif and warm tones as Reelcall's world. Keeping them keeps the two projects
+  distinct. Plex Sans carries prose. Iosevka carries the demo, commands, and labels.
+- **The real clip, the timecode rail, the static grain.**
+
+### What changed, and why
+
+| Change | Why |
+| --- | --- |
+| One accent, `#ff8a5b`, used only for the found moment: the best window, the playhead, and the caret. | The old peach also painted Install. A single meaning makes the accent read as information. |
+| Install is ink on ground, not peach. | Buttons stay monochrome. This follows agent-handoff. |
+| New headline: "Search your videos the way you remember them." | It states the benefit. "Quoting dialogue" overstated how audio search works. |
+| The lede and install command share one row under the headline. | Higher density. The demo window starts inside a 1440 × 900 first view. |
+| The demo reproduces Reelcall's real Textual UI: Library, the search field, the Moments list with span, file, and modality, and the real key bindings. | The page shows the product, not a generic terminal. |
+| The rail draws the real index geometry: 8-second windows on a 4-second stride, in two staggered lanes so the overlap shows. | Every mark measures something real. Indexing fills windows one at a time, search sweeps a scan line, the best window lights up, and the playhead follows the clip during playback. |
+| The index scene logs each window with its three embeddings. | It teaches visual, audio, and combined embeddings without extra prose. |
+| A "How it works" spec sheet: six cells in a ruled 3 × 2 table with a mono line of real parameters each. | Dense, factual, and not cards. No backgrounds, no radius, hairline rules only. |
+| Questions keep the 5fr/7fr grid. The MCP agent question says "Not yet". | The MCP server is in progress, so the page lists it as upcoming only. |
+| The footer is a ruled title block. | Borrowed from agent-handoff. |
+| No radial glow behind the demo. | The owner's rules forbid gradients. The window lifts with shadow and a hairline instead. |
+| The uv/git install tabs are gone. | One command is the install path. The README covers a Git checkout. |
+
+### Borrowed from agent-handoff
+
+- The 1120px sheet, 16px gutter, and 8px spacing scale.
+- Corner marks around the demo window. Here they are viewfinder brackets.
+- A transparent, Ghostty-style title bar with a system-font title.
+- Layered window light: white hairline edge, black outer ring, deep shadow,
+  and a 1px inner top highlight. Semi-transparent rules instead of opaque grays.
+- The command box with a copy label that blurs between "copy" and "copied".
+- Ink-on-ground primary button with a 0.97 press scale.
+- Questions as a two-column definition list, and the title-block footer.
+- A motion contract: transform and opacity only, UI feedback under 300ms,
+  hover only on fine pointers, and demo work paused when off screen.
+
+Not borrowed: Archivo, Paper Mono, measure blue, the drafting grid, the
+handoff diagram, the play button, and sound.
+
+### Motion
+
+- The demo loops while it is at least 35% visible and the tab is shown.
+- Scenes: add (type the path), index (seven windows), search (type the query,
+  sweep, rank), play (the real clip, with the playhead tracking `currentTime`).
+- Reduced motion runs no script. The static markup shows the ranked search
+  result with the best window and playhead at `0:24`.
+
+### Verification
+
+- Local Chrome at 1440 × 900 and 375 × 812, with no horizontal overflow.
+- Every scene exercised at both widths. The clip decodes and plays on both.
+- No console errors. Fonts load from `web/fonts/`.
+- Screenshots: `design-refs/redesign-1440.png` and `design-refs/redesign-375.png`.
+  Both are full-page captures with reduced motion, so the demo holds its search result.
+- Not checked: Safari, a physical phone, assistive technology, and native zoom.
+
+## History: screening room
+
 ## Scope
 
 This is a visual redesign of `web/` for a personal project shown to startup
