@@ -12,9 +12,10 @@ of the owner's agent-handoff page. It changes only `web/`.
 - **Warm monochrome.** Warm near-black ground and ivory ink. It is now closer
   to neutral: ground `#0d0c0b`, panel `#151412`, ink `#f0ebe3`, ink-2 `#b6afa5`,
   ink-3 `#8f887e`. Every text color passes 5.2:1 on every surface.
-- **IBM Plex Serif italic display.** agent-handoff's design notes name italic
-  serif and warm tones as Reelcall's world. Keeping them keeps the two projects
-  distinct. Plex Sans carries prose. Iosevka carries the demo, commands, and labels.
+- **A serif display.** Instrument Serif, upright, sets the headline only.
+  Geist carries prose, navigation, and section headings. Paper Mono carries the
+  demo, commands, code, and timecodes. The owner chose this pairing. All three
+  are SIL OFL and self-hosted in `web/fonts/`.
 - **The real clip, the timecode rail, the static grain.**
 
 ### What changed, and why
@@ -90,10 +91,10 @@ Base: `2f4fa1a`, including the slower demo timing and removal of Docs links.
 - Derive borders and highlights from the same warm ink. Do not override the
   palette inside the demo. Peach belongs only to Install, the caret, the active
   search result, and the playhead. Focus and copy feedback stay neutral.
-- **Type:** self-hosted IBM Plex Serif italic for the headline, 64px desktop,
-  tight tracking and balanced lines. IBM Plex Sans for navigation, questions,
-  descriptions, and search language. Iosevka for commands, paths, filenames,
-  timecodes, and key hints.
+- **Type:** self-hosted Instrument Serif for the headline, about 88px desktop
+  and 46px mobile, tight tracking and balanced lines. Geist for navigation,
+  questions, descriptions, and search language. Paper Mono for commands, paths,
+  filenames, and timecodes.
 - **Terminal:** follow the requested Ghostty reference with a single dark
   surface, a thin frame, a compact centered window title, and unboxed command
   text. Native red, yellow, and green window dots are the only exception to the

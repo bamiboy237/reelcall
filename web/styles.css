@@ -233,7 +233,7 @@ h1 {
 
 .hero-row {
   display: grid;
-  grid-template-columns: 5fr 6fr;
+  grid-template-columns: 4fr 6fr;
   align-items: end;
   gap: var(--s5);
   margin-top: var(--s5);
