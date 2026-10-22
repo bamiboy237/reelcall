@@ -13,6 +13,7 @@ Reference pages may change after this date.
 | `before-375.png` | Local `web/` at `2f4fa1a` | 375 × 812, full document, touch emulation |
 | `pass1-1440.png`, `pass1-375.png` | First composition study | Same layout widths; see the frame limitation below |
 | `ghostty-pass-1440.png`, `ghostty-pass-375.png` | Ghostty terminal pass, before PR polish | Same viewports as the before shots, full document |
+| `final-1440.png`, `final-375.png` | Final spacing polish after PR review | Same viewports as the before shots, full documents of 1440 × 2044 and 375 × 2013 |
 | `search-1440.png`, `search-375.png` | Normal-motion search result | Terminal crop at each layout width |
 
 The before and final page comparisons use reduced motion to hold the same

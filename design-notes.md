@@ -109,3 +109,56 @@ an unrelated product interview or changing persistent agent settings.
 
 These are local checks. Physical-phone, Safari, assistive-technology, CI, and
 production checks have not run at this stage. No merge or deployment is planned.
+
+## Post-PR visual review
+
+Reviewed the Ghostty pass after opening PR #14. Used the Impeccable and Emil
+guidance in one context. No second agent reviewed this work. These scores are
+design judgments, not user-study results.
+
+| Area | Before | After | Why |
+| --- | --- | --- | --- |
+| Type and scale | 8/10 | 8/10 | Keep the balanced 64px desktop and 36px mobile headline. Preserve all wording. |
+| Color | 8/10 | 8/10 | Keep shared warm neutrals and peach feedback. Native window dots remain the documented exception. |
+| Depth and light | 8/10 | 8/10 | Keep soft layered shadows, bounded warm light, and static grain. |
+| Rhythm | 7/10 | 8/10 | Reduce desktop hero padding from 72px/64px to 64px/48px. Reduce screen gaps from 24px to 16px and padding from 32px to 24px. |
+| Signature detail | 7/10 | 8/10 | Reduce the desktop screen from 408px to 376px, video maximum width from 480px to 464px, caption gap from 16px to 8px, and rail padding from 24px/16px to 16px/8px. The complete rail now fits in the initial 1440 × 1000 view. |
+| Motion | 8/10 | 8/10 | Keep the demo timing, transform and opacity feedback, instant keyboard activation, and static reduced-motion scene. |
+| Mobile layout | 8/10 | 8/10 | Keep the mobile headline and 304px demo screen. Both full install commands wrap without clipping at 375px. |
+| Non-template character | 8/10 | 8/10 | Keep the real clip, product-specific search rail, and Ghostty-style frame. Add no marketing sections. |
+
+The desktop terminal bottom moved from 1058px to 986px. The timeline remains
+visible without an initial scroll at 1440 × 1000. Mobile rail padding is 16px
+shorter in total. The mobile headline, screen size, and video width are unchanged.
+
+### Detector findings
+
+Ran the Impeccable detector after the first visual review. It exited with code 2
+and reported four findings:
+
+- **Italic serif display:** intentional. The brief calls for this editorial headline.
+- **Cramped install padding:** false positive on the parent wrapper. The child
+  layout gives the command text 25px side insets on desktop and 17px on mobile.
+- **Cramped FAQ padding:** false positive. Each bordered row has 24px bottom
+  padding. The last row has no bottom border.
+- **Repeating stripes:** intentional timeline measurement ticks, not a decorative
+  striped background.
+
+The review used screenshots and computed layout values, not a live overlay.
+
+### Final local evidence
+
+- Repeated the formatting, lint, type, package-build, JavaScript syntax, and
+  whitespace checks after the spacing changes. All passed.
+- Repeated desktop and touch-mobile browser checks for the search result,
+  `0:24` landing, keyboard or touch activation, decoded playback, both clipboard
+  commands, reduced motion, and widths from 320px to 1920px. All passed.
+- All four scene layouts fit inside the final screen. Keyboard focus remains
+  visible. Primary navigation, install tabs, and copy controls are 44px high.
+- Checked the specified text-color pairs against their surface colors. The lowest
+  checked ratio is 5.93:1. This is not a complete accessibility audit.
+- Saved final full-page images and normal-motion search crops in `design-refs/`.
+  The matched before and final playback captures use the same decoded frame.
+
+The physical-phone, Safari, assistive-technology, and native browser zoom checks
+remain open. CI status is reported on PR #14. No merge or deployment is included.

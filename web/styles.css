@@ -222,7 +222,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: calc(var(--space) * 5);
-  padding: calc(var(--space) * 9) 0 calc(var(--space) * 8);
+  padding: calc(var(--space) * 8) 0 calc(var(--space) * 6);
 }
 
 .hero__tagline {
@@ -387,9 +387,9 @@ button {
 .terminal__screen {
   display: flex;
   flex-direction: column;
-  gap: calc(var(--space) * 3);
-  height: 408px;
-  padding: calc(var(--space) * 4);
+  gap: calc(var(--space) * 2);
+  height: 376px;
+  padding: calc(var(--space) * 3);
   background: var(--bg-inset);
 }
 
@@ -558,7 +558,7 @@ button {
 .player {
   display: block;
   width: 100%;
-  max-width: 480px;
+  max-width: 464px;
   height: auto;
   aspect-ratio: 16 / 9;
   margin-inline: auto;
@@ -569,7 +569,7 @@ button {
 }
 
 .player__caption {
-  margin: 16px 0 0;
+  margin: 8px 0 0;
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--text-muted);
@@ -598,7 +598,7 @@ button {
 
 /* The rail is a readout of the search, not a draggable control. */
 .timeline {
-  padding: 24px 32px 16px;
+  padding: 16px 32px 8px;
   border-top: 1px solid var(--border);
   background: var(--bg-raised);
   box-shadow: inset 0 1px 0 var(--highlight);
