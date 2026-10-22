@@ -21,7 +21,7 @@ and playback links.
 ## Use
 
 ```sh
-uv tool install git+https://github.com/bamiboy237/video-processing-pipeline
+uv tool install git+https://github.com/bamiboy237/reelcall
 reelcall
 ```
 
@@ -56,7 +56,7 @@ Reelcall:
 
 ```sh
 uv tool uninstall video-pipeline
-uv tool install git+https://github.com/bamiboy237/video-processing-pipeline
+uv tool install git+https://github.com/bamiboy237/reelcall
 ```
 
 Then run `reelcall` from your library's folder. The library files and Docker
