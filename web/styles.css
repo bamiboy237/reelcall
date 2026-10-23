@@ -1,55 +1,83 @@
-/* Reelcall: a screening room drawn as an edit bay. The page is monochrome warm
-   neutrals. The accent marks the found moment and nothing else: the playhead,
-   the best window, and the caret that asks for it. */
+/* Reelcall: the page follows Trace (buildwithtrace.com, dark theme) for ground,
+   type, spacing, and pill buttons. The demo window follows Ghostty (ghostty.org)
+   for chrome, title, and the thin border. Every border on the page uses the one
+   Ghostty-measured line: 1px solid at about 25% ink. The page is monochrome. */
 
 @font-face {
-  font-family: "Instrument Serif";
+  font-family: "Newsreader";
   font-style: normal;
-  font-weight: 400;
+  font-weight: 200 800;
   font-display: swap;
-  src: url("fonts/instrument-serif-400.woff2") format("woff2");
+  src: url("fonts/newsreader-variable.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Geist";
+  font-family: "Instrument Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("fonts/instrument-sans-variable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono";
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url("fonts/geist-variable.woff2") format("woff2");
+  src: url("fonts/geist-mono-variable.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Paper Mono";
+  font-family: "JetBrains Mono";
   font-style: normal;
-  font-weight: 100 800;
+  font-weight: 400;
   font-display: swap;
-  src: url("fonts/paper-mono-variable.woff2") format("woff2");
+  src: url("fonts/jetbrains-mono-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/jetbrains-mono-500.woff2") format("woff2");
 }
 
 :root {
   color-scheme: dark;
 
-  --ground: #0d0c0b;
-  --panel: #151412;
-  --term: #11100f;
-  --ink: #f0ebe3;
-  --ink-2: #b6afa5;
-  --ink-3: #8f887e;
-  --rule: rgb(240 235 227 / 9%);
-  --rule-strong: rgb(240 235 227 / 18%);
-  --mark: rgb(240 235 227 / 36%);
-  --accent: #ff8a5b;
-  --accent-soft: rgb(255 138 91 / 18%);
+  /* Trace dark theme: --wf-bg-primary, --wf-bg-secondary, --wf-color-dark. */
+  --ground: #1a1612;
+  --panel: #211c17;
+  --ink: #e8e0d4;
+  --ink-2: rgb(232 224 212 / 66%);
+  --ink-3: rgb(232 224 212 / 62%);
 
-  --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
-  --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "Paper Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* Ghostty's border is 1px solid rgb(76 76 80) on rgb(15 15 17), about 25% white.
+     This is the same 25% in Trace's warm ink. */
+  --line-width: 1px;
+  --line: rgb(232 224 212 / 25%);
 
-  --t-label: 13px;
-  --t-ui: 15px;
-  --t-body: 17px;
-  --t-h2: 28px;
-  --t-display: clamp(46px, 5.4vw + 10px, 96px);
+  /* The demo window: Ghostty's cooler, darker surface. */
+  --term-bg: #121113;
+  --term-ink: #cfc8bc;
+  --term-faint: rgb(207 200 188 / 70%);
+  --term-title: rgb(207 200 188 / 66%);
+  --term-select: rgb(232 224 212 / 9%);
+
+  --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --serif-weight: 340;
+  --sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ui: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Trace type scale, h1 88/80, h2 64/64, body large 20/28, body 16/24. */
+  --t-display: clamp(42px, 6.1vw, 88px);
+  --t-h2: clamp(40px, 4.45vw, 64px);
+  --t-large: 20px;
+  --t-body: 16px;
+  --t-small: 14px;
+  --t-label: 12px;
 
   --s1: 8px;
   --s2: 16px;
@@ -57,16 +85,12 @@
   --s4: 32px;
   --s5: 48px;
   --s6: 64px;
-  --s7: 96px;
-  --s8: 128px;
+  --s7: 80px;
+  --s8: 120px;
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --sheet: 1120px;
-  --gutter: 16px;
-
-  /* The demo clip's timeline, in seconds. Windows and labels are placed on it. */
-  --track-seconds: 32;
-  --window-seconds: 8;
+  --sheet: 1312px;
+  --pad: clamp(20px, 4.45vw, 64px);
 }
 
 *,
@@ -77,28 +101,18 @@
 
 html {
   background: var(--ground);
-  scrollbar-color: #2b2825 var(--ground);
+  scrollbar-color: #3a3229 var(--ground);
   -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
   color: var(--ink);
-  font: 400 var(--t-body) / 1.55 var(--sans);
+  font: 400 var(--t-body) / 1.5 var(--sans);
+  letter-spacing: -0.0125em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-synthesis: none;
-}
-
-/* A static film grain, faint enough to read as paper rather than noise. */
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-  pointer-events: none;
-  background: url("assets/grain.svg");
-  opacity: 0.03;
 }
 
 ::selection {
@@ -124,7 +138,6 @@ button {
 :focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 3px;
-  border-radius: 4px;
 }
 
 h1,
@@ -138,7 +151,8 @@ figure {
 
 code {
   font-family: var(--mono);
-  font-size: 0.9em;
+  font-size: 0.88em;
+  letter-spacing: 0;
 }
 
 .sr-only {
@@ -151,8 +165,45 @@ code {
 }
 
 .sheet {
-  width: min(var(--sheet), 100% - 2 * var(--gutter));
+  width: min(var(--sheet), 100% - 2 * var(--pad));
   margin-inline: auto;
+}
+
+/* Pills: Trace's mono pill, sentence case. */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 20px;
+  border: var(--line-width) solid transparent;
+  border-radius: 999px;
+  font: 400 var(--t-label) / 1 var(--ui);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  transition:
+    transform 160ms var(--ease-out),
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.pill:active {
+  transform: scale(0.97);
+}
+
+/* Cream fill: Trace's primary. */
+.install-link,
+.copy {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--ground);
+}
+
+/* Thin outline: Trace's secondary, drawn with the page's one line. */
+.nav-link {
+  border-color: var(--line);
+  color: var(--ink);
 }
 
 /* Nav */
@@ -161,105 +212,83 @@ code {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: var(--s6);
-  font-size: var(--t-ui);
+  height: 80px;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  font: 500 20px / 1 var(--sans);
-  letter-spacing: -0.02em;
+  font: 600 22px / 1 var(--sans);
+  letter-spacing: -0.04em;
 }
 
 .nav nav {
   display: flex;
   align-items: center;
-  gap: var(--s3);
-  color: var(--ink-2);
-}
-
-.install-link {
-  display: inline-flex;
-  align-items: center;
-  height: 34px;
-  padding: 0 14px;
-  border-radius: 8px;
-  background: var(--ink);
-  color: var(--ground);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 60%),
-    0 1px 2px rgb(0 0 0 / 50%);
-  transition:
-    transform 160ms var(--ease-out),
-    background-color 160ms ease;
-}
-
-.install-link:active,
-.copy:active,
-.row[data-result]:active {
-  transform: scale(0.97);
+  gap: var(--s1);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .nav-link:hover,
+  .nav-link:hover {
+    border-color: var(--ink);
+  }
+
+  .install-link:hover,
+  .copy:hover {
+    background: #f4eee4;
+    border-color: #f4eee4;
+  }
+
   .footer a:hover {
     color: var(--ink);
-  }
-
-  .install-link:hover {
-    background: #ffffff;
-  }
-
-  .copy:hover {
-    color: var(--ink);
-    background: rgb(240 235 227 / 7%);
   }
 }
 
 /* Hero */
 
 .hero {
-  padding: 80px 0 56px;
+  padding: var(--s7) 0 var(--s6);
 }
 
 h1 {
-  max-width: 11em;
-  font: 400 var(--t-display) / 1.02 var(--serif);
-  letter-spacing: -0.03em;
+  max-width: 11.6em;
+  font: var(--serif-weight) var(--t-display) / 0.98 var(--serif);
+  letter-spacing: -0.032em;
   text-wrap: balance;
 }
 
 .hero-row {
-  display: grid;
-  grid-template-columns: 4fr 6fr;
-  align-items: end;
-  gap: var(--s5);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s4);
   margin-top: var(--s5);
 }
 
 .lede {
-  max-width: 28em;
-  font-size: 19px;
-  line-height: 1.5;
+  max-width: 30em;
+  font-size: var(--t-large);
+  line-height: 1.4;
+  letter-spacing: -0.02em;
   color: var(--ink-2);
   text-wrap: pretty;
+}
+
+.install {
+  max-width: 100%;
 }
 
 .command {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--s2);
-  padding: 6px 6px 6px var(--s2);
+  gap: var(--s3);
+  max-width: 100%;
+  padding: 8px 8px 8px var(--s3);
   background: var(--panel);
-  border: 1px solid var(--rule-strong);
+  border: var(--line-width) solid var(--line);
   border-radius: 10px;
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 6%),
-    0 1px 2px rgb(0 0 0 / 40%),
-    0 12px 32px -12px rgb(0 0 0 / 60%);
 }
 
 .command code {
@@ -267,25 +296,10 @@ h1 {
   font: 400 14px / 1.5 var(--mono);
   color: var(--ink);
   white-space: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 
 .dollar {
   color: var(--ink-3);
-}
-
-.copy {
-  flex-shrink: 0;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 6px;
-  font: 400 var(--t-label) / 1 var(--mono);
-  color: var(--ink-2);
-  transition:
-    color 150ms ease,
-    background-color 150ms ease,
-    transform 160ms var(--ease-out);
 }
 
 /* The label blurs through its swap, so "copy" and "copied" never read as two words. */
@@ -301,10 +315,15 @@ h1 {
   opacity: 0;
 }
 
+.copy {
+  flex-shrink: 0;
+  min-width: 78px;
+}
+
 .install-note {
-  margin-top: 12px;
-  padding-left: var(--s2);
-  font-size: var(--t-label);
+  margin-top: var(--s2);
+  font-size: var(--t-small);
+  line-height: 1.5;
   color: var(--ink-3);
 }
 
@@ -312,73 +331,50 @@ h1 {
   color: var(--ink-2);
 }
 
-/* Demo */
+/* Entrance: the hero rises in once, in reading order. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+h1,
+.lede,
+.install,
+.demo .frame {
+  animation: rise 700ms var(--ease-out) backwards;
+}
+
+.lede {
+  animation-delay: 90ms;
+}
+
+.install {
+  animation-delay: 180ms;
+}
+
+.demo .frame {
+  animation-delay: 280ms;
+}
+
+/* Demo: a Ghostty window. 1px line, 10px radius, no shadow, one surface from
+   title bar to screen, title centered in a light weight, 12px lights at 20px pitch. */
 
 .demo {
   padding-bottom: var(--s8);
 }
 
-/* Viewfinder brackets at the window's corners, the camera's version of crop marks. */
 .frame {
   position: relative;
-}
-
-.frame::before,
-.frame::after,
-.corners::before,
-.corners::after {
-  content: "";
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  border: 0 solid var(--mark);
-  pointer-events: none;
-}
-
-.frame::before {
-  top: -14px;
-  left: -14px;
-  border-width: 1px 0 0 1px;
-}
-
-.frame::after {
-  top: -14px;
-  right: -14px;
-  border-width: 1px 1px 0 0;
-}
-
-.corners::before {
-  bottom: -14px;
-  left: -14px;
-  border-width: 0 0 1px 1px;
-}
-
-.corners::after {
-  bottom: -14px;
-  right: -14px;
-  border-width: 0 1px 1px 0;
 }
 
 .window {
   position: relative;
   overflow: hidden;
-  background: var(--term);
-  border: 1px solid rgb(255 255 255 / 10%);
-  border-radius: 12px;
-  box-shadow:
-    0 0 0 1px rgb(0 0 0 / 60%),
-    0 1px 1px rgb(0 0 0 / 50%),
-    0 24px 64px -16px rgb(0 0 0 / 80%);
-}
-
-.window::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  border-radius: inherit;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 10%);
-  pointer-events: none;
+  background: var(--term-bg);
+  border: var(--line-width) solid var(--line);
+  border-radius: 10px;
 }
 
 .chrome {
@@ -386,13 +382,13 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 32px;
+  height: 36px;
   padding: 0 84px;
 }
 
 .lights {
   position: absolute;
-  left: 13px;
+  left: 11px;
   display: flex;
   gap: 8px;
 }
@@ -402,7 +398,6 @@ h1 {
   height: 12px;
   border-radius: 50%;
   background: #ff5f57;
-  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 25%);
 }
 
 .lights i:nth-child(2) {
@@ -413,29 +408,30 @@ h1 {
   background: #28c840;
 }
 
-/* macOS draws window titles in the system font, not the terminal's. */
 .window-title {
   overflow: hidden;
-  font: 600 13px / 1 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  color: rgb(235 235 245 / 55%);
+  font: 400 14px / 1 var(--sans);
+  letter-spacing: 0;
+  color: var(--term-title);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-/* The screen reproduces Reelcall's own terminal UI: 256-color grays, one font. */
+/* The screen reproduces Reelcall's own terminal UI in JetBrains Mono, Ghostty's font. */
 .screen {
   position: relative;
-  height: 340px;
+  height: 368px;
   padding: var(--s2) var(--s4) 0;
-  font: 400 14px / 1.6 var(--mono);
-  color: var(--ink);
+  font: 400 15px / 1.6 var(--mono);
+  letter-spacing: 0;
+  color: var(--term-ink);
 }
 
 .scene {
   display: none;
   height: 100%;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .demo[data-scene="add"] [data-scene-name="add"],
@@ -453,7 +449,7 @@ h1 {
 }
 
 .faint {
-  color: var(--ink-3);
+  color: var(--term-faint);
 }
 
 .tui-head {
@@ -464,22 +460,23 @@ h1 {
 
 .tui-head b {
   font-weight: 500;
+  color: var(--ink);
 }
 
 .field {
   display: flex;
   align-items: center;
   gap: 1.5ch;
-  min-height: 44px;
-  padding: 0 14px;
-  border: 1px solid var(--rule-strong);
+  min-height: 48px;
+  padding: 0 16px;
+  border: var(--line-width) solid var(--line);
   border-radius: 6px;
   overflow-wrap: anywhere;
 }
 
 .glyph {
   flex-shrink: 0;
-  color: var(--ink-3);
+  color: var(--term-faint);
 }
 
 .caret {
@@ -487,7 +484,7 @@ h1 {
   width: 1ch;
   height: 1.25em;
   margin-left: -1.25ch;
-  background: var(--accent);
+  background: var(--ink);
   animation: blink 1.06s steps(1) infinite;
 }
 
@@ -499,21 +496,25 @@ h1 {
 
 .row {
   display: grid;
-  grid-template-columns: 13ch minmax(0, 1fr) 10ch;
+  grid-template-columns: 14ch minmax(0, 1fr) 10ch;
   align-items: center;
   gap: 2ch;
   width: 100%;
-  min-height: 32px;
-  padding: 0 12px;
+  min-height: 36px;
+  padding: 0 14px;
   border-radius: 4px;
   text-align: left;
-  color: var(--ink-2);
+  color: var(--term-ink);
   transition: transform 160ms var(--ease-out);
 }
 
 .row.is-selected {
-  background: rgb(240 235 227 / 8%);
+  background: var(--term-select);
   color: var(--ink);
+}
+
+.row[data-result]:active {
+  transform: scale(0.99);
 }
 
 .row-name {
@@ -524,7 +525,7 @@ h1 {
 
 /* Library row: state glyph, name, progress, count, length. */
 [data-scene-name="index"] .row {
-  grid-template-columns: 2ch minmax(0, 1fr) minmax(80px, 200px) 15ch 5ch;
+  grid-template-columns: 2ch minmax(0, 1fr) minmax(80px, 240px) 15ch 5ch;
 }
 
 .state {
@@ -533,12 +534,12 @@ h1 {
 
 .row-time {
   text-align: right;
-  color: var(--ink-3);
+  color: var(--term-faint);
 }
 
 .bar {
   height: 4px;
-  background: var(--rule-strong);
+  background: var(--line);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -546,7 +547,7 @@ h1 {
 .bar-fill {
   display: block;
   height: 100%;
-  background: var(--ink-2);
+  background: var(--ink);
   transform: scaleX(var(--progress, 0));
   transform-origin: left;
   transition: transform 300ms var(--ease-out);
@@ -554,8 +555,8 @@ h1 {
 
 .results {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 240px;
-  gap: var(--s4);
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: var(--s5);
   transition: opacity 240ms var(--ease-out);
 }
 
@@ -570,19 +571,19 @@ h1 {
 }
 
 .results-list > .faint {
-  padding: 0 12px 4px;
+  padding: 0 14px 4px;
 }
 
 .preview img {
   display: block;
   width: 100%;
   height: auto;
+  border: var(--line-width) solid var(--line);
   border-radius: 4px;
-  outline: 1px solid var(--rule);
 }
 
 .preview figcaption {
-  margin-top: 6px;
+  margin-top: 8px;
   font-size: 12px;
 }
 
@@ -597,19 +598,19 @@ h1 {
   aspect-ratio: 16 / 9;
   object-fit: contain;
   background: #000;
+  border: var(--line-width) solid var(--line);
   border-radius: 4px;
-  outline: 1px solid var(--rule);
 }
 
 /* The rail measures the clip. Every mark is real: one-second ticks, labels every
    eight seconds, and the overlapping windows Reelcall embeds. */
 .rail {
-  padding: 14px var(--s4) 12px;
-  border-top: 1px solid var(--rule);
-  background: var(--panel);
+  padding: 14px var(--s4) 14px;
+  border-top: var(--line-width) solid var(--line);
   font: 400 12px / 16px var(--mono);
+  letter-spacing: 0;
   font-variant-numeric: tabular-nums;
-  color: var(--ink-3);
+  color: var(--term-faint);
 }
 
 .track {
@@ -627,12 +628,12 @@ h1 {
 .win {
   position: absolute;
   top: 0;
-  left: calc(var(--start) / var(--track-seconds) * 100% + 2px);
-  width: calc(var(--window-seconds) / var(--track-seconds) * 100% - 4px);
+  left: calc(var(--start) / var(--track-seconds, 32) * 100% + 2px);
+  width: calc(var(--window-seconds, 8) / var(--track-seconds, 32) * 100% - 4px);
   height: 7px;
   background-color: transparent;
   border-radius: 2px;
-  box-shadow: inset 0 0 0 1px var(--rule-strong);
+  box-shadow: inset 0 0 0 var(--line-width) var(--line);
   transition:
     background-color 300ms ease,
     box-shadow 300ms ease;
@@ -643,27 +644,27 @@ h1 {
 }
 
 .win.is-indexed {
-  background-color: rgb(240 235 227 / 22%);
+  background-color: rgb(232 224 212 / 24%);
   box-shadow: none;
 }
 
 .win.is-hit {
-  background-color: var(--ink-2);
+  background-color: rgb(232 224 212 / 56%);
   box-shadow: none;
 }
 
 .win.is-best {
-  background-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  background-color: var(--ink);
+  box-shadow: 0 0 0 3px rgb(232 224 212 / 20%);
 }
 
 .ticks {
   height: 8px;
   margin-top: 6px;
-  border-right: 1px solid var(--rule-strong);
+  border-right: var(--line-width) solid var(--line);
   background:
-    repeating-linear-gradient(to right, var(--rule-strong) 0 1px, transparent 1px 12.5%) 0 0 / 100% 8px no-repeat,
-    repeating-linear-gradient(to right, var(--rule) 0 1px, transparent 1px 3.125%) 0 0 / 100% 4px no-repeat;
+    repeating-linear-gradient(to right, var(--line) 0 1px, transparent 1px 12.5%) 0 0 / 100% 8px no-repeat,
+    repeating-linear-gradient(to right, rgb(232 224 212 / 12%) 0 1px, transparent 1px 3.125%) 0 0 / 100% 4px no-repeat;
 }
 
 .tick-labels {
@@ -674,7 +675,7 @@ h1 {
 
 .tick-labels span {
   position: absolute;
-  left: calc(var(--at) / var(--track-seconds) * 100%);
+  left: calc(var(--at) / 32 * 100%);
   translate: -50% 0;
 }
 
@@ -706,7 +707,7 @@ h1 {
   left: -1px;
   width: 2px;
   border-radius: 1px;
-  background: var(--accent);
+  background: var(--ink);
 }
 
 .playhead span {
@@ -714,7 +715,7 @@ h1 {
   top: 0;
   left: 0;
   translate: -50% 0;
-  color: var(--accent);
+  color: var(--ink);
 }
 
 .demo:is([data-scene="add"], [data-scene="index"]) .playhead,
@@ -740,33 +741,48 @@ h1 {
   opacity: 1;
 }
 
-/* Section headings */
-h2 {
-  margin-bottom: var(--s4);
-  font: 500 var(--t-h2) / 1.2 var(--sans);
-  letter-spacing: -0.02em;
+/* Questions: the heading beside the list, as Trace sets its text columns. */
+
+.questions,
+.footer {
+  width: auto;
+  margin-inline: 0;
+  padding-inline: max(var(--pad), (100% - var(--sheet)) / 2);
+  border-top: var(--line-width) solid var(--line);
 }
 
-/* Questions */
-
 .questions {
-  padding-bottom: var(--s8);
+  display: grid;
+  grid-template-columns: 5fr 7fr;
+  gap: var(--s5) var(--s6);
+  align-items: start;
+  padding-block: var(--s8);
+}
+
+h2 {
+  font: var(--serif-weight) var(--t-h2) / 1 var(--serif);
+  letter-spacing: -0.03em;
 }
 
 .questions dl > div {
-  display: grid;
-  grid-template-columns: 5fr 7fr;
-  gap: var(--s1) var(--s4);
   padding: var(--s3) 0;
-  border-top: 1px solid var(--rule);
+  border-top: var(--line-width) solid var(--line);
 }
 
-.questions dl > div:last-child {
-  border-bottom: 1px solid var(--rule);
+.questions dl > div:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.questions dt {
+  font: var(--serif-weight) var(--t-large) / 1.4 var(--serif);
+  letter-spacing: -0.01em;
+  color: var(--ink);
 }
 
 .questions dd {
-  max-width: 34em;
+  max-width: 36em;
+  margin-top: 12px;
   color: var(--ink-2);
 }
 
@@ -775,38 +791,32 @@ h2 {
   white-space: nowrap;
 }
 
-/* Footer, laid out as a title block. */
+/* Footer */
 
 .footer {
   display: grid;
   grid-template-columns: 1fr auto auto;
-  margin-bottom: var(--s5);
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  font: 400 var(--t-label) / 1 var(--mono);
+  align-items: center;
+  gap: var(--s6);
+  padding-block: var(--s4);
+  font: 400 var(--t-label) / 1 var(--ui);
+  letter-spacing: 0.02em;
   color: var(--ink-3);
 }
 
-.footer > * {
-  padding: var(--s2);
-}
-
-.footer > * + * {
-  border-left: 1px solid var(--rule);
+.footer-brand {
+  font: 600 22px / 1 var(--sans);
+  letter-spacing: -0.04em;
+  color: var(--ink);
 }
 
 .footer a {
   transition: color 150ms ease;
 }
 
-.footer-brand {
-  color: var(--ink);
-}
-
-@media (max-width: 860px) {
-  .hero-row {
+@media (max-width: 960px) {
+  .questions {
     grid-template-columns: 1fr;
-    gap: var(--s4);
   }
 
   .results {
@@ -820,69 +830,65 @@ h2 {
 
 @media (max-width: 720px) {
   .nav {
-    height: 56px;
+    height: 64px;
   }
 
-  .nav nav {
-    gap: var(--s1);
-  }
-
-  /* Touch targets: nav and hero controls are at least 44px tall on a phone. */
-  .nav-link {
-    display: inline-flex;
-    align-items: center;
-    height: 44px;
-    padding: 0 var(--s1);
-  }
-
-  .install-link,
-  .copy {
-    height: 44px;
+  .pill {
+    height: 40px;
+    padding: 0 16px;
   }
 
   .hero {
-    padding: var(--s6) 0 var(--s5);
-  }
-
-  h1 {
-    letter-spacing: -0.03em;
-    line-height: 1.04;
+    padding: var(--s5) 0 var(--s5);
   }
 
   .hero-row {
+    gap: var(--s3);
     margin-top: var(--s4);
   }
 
   .lede {
-    font-size: var(--t-body);
+    font-size: 18px;
   }
 
-  /* The command wraps instead of hiding its end behind an invisible scroll. */
+  /* The command wraps instead of hiding its end behind an invisible scroll.
+     Copy stays beside it, so the box reads as one control. */
+  .command {
+    gap: 12px;
+    padding: 8px 8px 8px 14px;
+  }
+
+  .command .copy {
+    height: 32px;
+    min-width: 0;
+    padding: 0 14px;
+  }
+
   .command code {
-    font-size: var(--t-label);
+    font-size: 13px;
     white-space: normal;
     overflow-wrap: break-word;
   }
 
-  .demo,
-  .questions {
+  .demo {
     padding-bottom: var(--s7);
   }
 
-  .frame::before,
-  .frame::after,
-  .corners::before,
-  .corners::after {
-    display: none;
+  .questions {
+    padding-block: var(--s7);
   }
 
   .chrome {
-    justify-content: flex-start;
-    padding: 0 var(--s2) 0 76px;
+    height: 32px;
+    padding: 0 72px;
+  }
+
+  .lights {
+    left: 10px;
   }
 
   .screen {
-    height: 296px;
+    height: 248px;
     padding: 12px 14px 0;
     font-size: 12px;
   }
@@ -905,6 +911,7 @@ h2 {
   .row {
     grid-template-columns: 12ch minmax(0, 1fr);
     gap: 1.5ch;
+    min-height: 32px;
     padding: 0 8px;
   }
 
@@ -925,13 +932,17 @@ h2 {
     font-size: 11px;
   }
 
-  .questions dl > div {
-    grid-template-columns: 1fr;
+  .footer {
+    grid-template-columns: 1fr auto;
+    gap: var(--s2) var(--s3);
   }
 
+  .footer-brand {
+    grid-column: 1 / -1;
+  }
 }
 
-/* Reduced motion: no typing, blinking, or scanning. The demo holds its search result. */
+/* Reduced motion: no typing, blinking, scanning, or entrance. The demo holds its search result. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
