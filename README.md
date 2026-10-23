@@ -49,6 +49,35 @@ If you set `VIDEO_PIPELINE_DATABASE_URL`, Reelcall uses that connection without
 starting local containers. `reelcall ui --no-services` opens the app without
 Docker startup.
 
+## Use with an agent
+
+`reelcall mcp` runs an MCP server for one library. Agents that support MCP
+can search the library, look at frames, and queue indexing and clips. Videos
+stay on your machine.
+
+Register it with Claude Code:
+
+```sh
+claude mcp add reelcall -- reelcall mcp --data-dir /path/to/library
+```
+
+Other MCP clients use the command `reelcall` with the arguments
+`mcp --data-dir /path/to/library`. Use an absolute path, because agents start
+the server from their own working folder.
+
+| Tool | Result |
+| --- | --- |
+| `list_videos` | Library videos, their IDs, and whether each is indexed. |
+| `search_videos` | Ranked moments with timestamps and a thumbnail for each. |
+| `view_moment` | Frames spread across a span, each labeled with its timestamp. |
+| `add_video` | Copies a video into the library and queues indexing. |
+| `make_clip` | Queues an MP4 clip of a span. |
+| `job_status` | Job progress, the output file path, or the failure. |
+
+Search and frame viewing work without Docker. `add_video` and `make_clip`
+start the job service the same way `reelcall` does, unless
+`VIDEO_PIPELINE_DATABASE_URL` is set.
+
 ## Update an older install
 
 If `uv tool list` shows `video-pipeline`, remove the old tool before installing

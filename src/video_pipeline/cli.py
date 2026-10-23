@@ -22,6 +22,7 @@ COMMANDS = (
     ("search", "query", "find a moment"),
     ("evaluate", "json…", "measure search"),
     ("serve", "", "upload api"),
+    ("mcp", "", "agent tools"),
     ("worker", "", "job worker"),
     ("init-jobs", "", "job database"),
     ("ui", "", "interactive"),
@@ -380,6 +381,13 @@ def serve(args: argparse.Namespace) -> None:
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 
 
+def serve_mcp(args: argparse.Namespace) -> None:
+    from video_pipeline.mcp_server import create_server
+
+    # Standard output carries the protocol, so nothing else may print to it.
+    create_server(args.data_dir, args.device).run()
+
+
 def worker(args: argparse.Namespace) -> None:
     from video_pipeline.worker import run_worker
 
@@ -489,6 +497,10 @@ def build_parser() -> Parser:
 
     sub = command("serve", serve)
     sub.add_argument("--port", type=int, default=8000)
+    data_dir(sub)
+    device(sub)
+
+    sub = command("mcp", serve_mcp)
     data_dir(sub)
     device(sub)
 

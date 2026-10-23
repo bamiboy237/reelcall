@@ -109,6 +109,36 @@ def read_window(
     return MediaWindow(frames, timestamps, samples, video_ended)
 
 
+def read_frames(
+    path: Path, seconds: list[float], size: int
+) -> list[tuple[float, Image.Image]]:
+    """Decode the first frame at or after each requested second.
+
+    Each request seeks separately, so frames far apart in a long video do not
+    decode everything between them. Requests past the last frame are skipped.
+    """
+    frames = []
+    with av.open(str(path)) as container:
+        stream = container.streams.video[0]
+        stream.thread_type = "AUTO"
+        # Match FFmpeg's file-relative seek clock, including stream offsets.
+        origin = float(container.start_time or 0) / av.time_base
+        for target in seconds:
+            container.seek(int((origin + target) / stream.time_base), stream=stream)
+            for frame in container.decode(stream):
+                frame_seconds = float(frame.time) - origin
+                if frame_seconds >= target:
+                    break
+            else:
+                continue
+            image = frame.to_image()
+            if frame.rotation:
+                image = image.rotate(frame.rotation, expand=True)
+            image.thumbnail((size, size))
+            frames.append((frame_seconds, image))
+    return frames
+
+
 def _tensor_key(*tensors: Any) -> bytes:
     digest = hashlib.blake2b(digest_size=16)
     for tensor in tensors:
