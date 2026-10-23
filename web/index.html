@@ -6,10 +6,11 @@
   <title>Reelcall</title>
   <meta name="description" content="Reelcall builds a permanent index of your videos that you or your AI agents can search anytime." />
   <meta name="color-scheme" content="dark" />
-  <meta name="theme-color" content="#0d0c0b" />
+  <meta name="theme-color" content="#1a1612" />
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
-  <link rel="preload" href="fonts/instrument-serif-400.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="fonts/paper-mono-variable.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="fonts/newsreader-variable.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="fonts/instrument-sans-variable.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="fonts/jetbrains-mono-400.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="styles.css" />
   <script src="app.js" defer></script>
 </head>
@@ -19,8 +20,8 @@
       <img src="assets/logo.svg" width="20" height="20" alt="" />Reelcall
     </a>
     <nav aria-label="Primary">
-      <a class="nav-link" href="https://github.com/bamiboy237/reelcall">GitHub</a>
-      <a class="install-link" href="#install">Install</a>
+      <a class="nav-link pill" href="https://github.com/bamiboy237/reelcall">GitHub</a>
+      <a class="install-link pill" href="#install">Install</a>
     </nav>
   </header>
 
@@ -32,7 +33,7 @@
         <div class="install" id="install">
           <div class="command">
             <code translate="no"><span class="dollar">$</span> uv tool install git+https://github.com/<wbr>bamiboy237/<wbr>reelcall</code>
-            <button class="copy" type="button" data-copy="uv tool install git+https://github.com/bamiboy237/reelcall">
+            <button class="copy pill" type="button" data-copy="uv tool install git+https://github.com/bamiboy237/reelcall">
               <span class="copy-label">copy</span>
             </button>
           </div>
@@ -45,7 +46,6 @@
       <p class="sr-only">Demo: Reelcall adds a video, indexes it, finds "the girl in a black witch hat", and plays the match at 0:24.</p>
 
       <div class="frame">
-        <span class="corners" aria-hidden="true"></span>
         <div class="window" aria-hidden="true" translate="no">
           <div class="chrome">
             <span class="lights"><i></i><i></i><i></i></span>

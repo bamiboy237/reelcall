@@ -1,6 +1,104 @@
 # Reelcall look and feel
 
-## Current direction: edit bay (October 2026)
+## Current direction: Trace page, Ghostty window (October 2026)
+
+A visual restyle only. The copy is unchanged word for word. The page follows
+Trace (buildwithtrace.com, dark theme) for ground, type, spacing, and pills.
+The demo window follows Ghostty (ghostty.org). All values below were measured
+with computed styles in Chrome at 1440 and 375, with Trace's cookie banner
+rejected.
+
+### Measured from Trace (dark theme, `data-theme="dark"`)
+
+- Ground `rgb(26 22 18)`, raised surface `rgb(33 28 23)`, ink `rgb(232 224 212)`.
+  The light theme (`rgb(235 232 219)` ground) is what loads without a dark
+  color scheme. This page uses the dark one.
+- Ink tints: 64% for secondary text, 48% for labels. Reelcall uses 66% and 62%
+  so every text passes 4.5:1.
+- Scale: h1 88/80, tracking -3px. h2 64/64, tracking -4px. Body large 20/28.
+  Body 16/24, tracking -0.2px. Section padding 120px, 64px side padding at
+  1440. Content width 1312px.
+- Headline face LT Superior Serif (commercial, not used) at weight 400. FAQ
+  questions 20/28 serif with 24px row padding.
+- UI text: Geist Mono 12px with 1px tracking. Pills have a 999px radius. The
+  filled pill is `10px 20px` padding and 36px tall, cream on dark. The outline
+  pill is `8px 16px` with a 1px border at 20% ink.
+- Frames: radius 16px and 24px, 1px border at 20% ink. Rules between FAQ rows
+  are 1px at 20% ink.
+
+### Measured from Ghostty
+
+- Page ground `rgb(15 15 17)`. Terminal font JetBrains Mono.
+- Window: `1px solid rgb(76 76 80)`, radius 10px, no box shadow, one surface
+  from the title bar to the screen. Title bar about 36px tall. Title in 14px
+  weight 300, color `rgb(130 130 134)`, centered. Lights are 12px circles at a
+  20px pitch, 12px from the left edge.
+- Outlined buttons (Documentation): `1px solid rgb(76 76 80)`, radius 6px,
+  padding `10px 34px`, no shadow. The Download button has the same border in
+  blue `rgb(53 81 243)`. This page does not use the blue.
+- The border is about 25% white on its ground: (76 - 15) / (255 - 15).
+
+### The one border
+
+Every border on the page is `1px solid rgb(232 224 212 / 25%)`, Ghostty's
+width and strength in Trace's warm ink. On the page ground this composites to
+`rgb(78 73 67)`, against Ghostty's `rgb(76 76 80)`. It applies to the demo
+window, the install command box, the nav outline pill, the terminal search
+field, the video and poster, the timeline rail rule, the FAQ rules, and the
+footer rule. Radius: 10px on the window and command box (Ghostty's window),
+6px on the terminal field (Ghostty's button), a full pill on buttons (Trace).
+There are no shadows.
+
+### Choices
+
+| Item | Choice | Why |
+| --- | --- | --- |
+| Headline serif | Newsreader, variable, weight 340, tracking -0.032em | Compared Instrument Serif, Newsreader, and Source Serif 4 at 64px against Trace's "Hardware design should too" (732px wide). Instrument Serif is too condensed. Source Serif 4 is too stiff. Newsreader at light weight matches the letter widths, the open round forms, and the weight. Negative tracking is -0.03em, because Trace's -4px is for a wider face. |
+| Body | Instrument Sans (OFL, variable) | Trace uses it. |
+| Small UI | Geist Mono (OFL, variable) | Trace uses it for buttons, nav, and the footer. |
+| Terminal | JetBrains Mono (OFL) 400 and 500 | Ghostty's own font. Paper Mono has the same glyph coverage and reads less like Ghostty. |
+| Palette | Monochrome. The old orange accent is gone. | Trace has no accent. The caret, playhead, best window, and scan line are ink. The best window is solid, hits are 56%, indexed windows are 24%. The logo's playhead stroke is now ink too. |
+| Window surface | `#121113` | Slightly cooler and darker than the page, like Ghostty's ground, but still warm enough to sit on `#1a1612`. |
+| Grain overlay | Removed | Trace is flat. |
+| Viewfinder corner marks | Removed | They are a second border language. The window has one line. |
+| Entrance motion | Headline, intro, install, and demo rise 12px and fade in, 700ms, staggered by 90ms | Calm, matches Trace's scroll reveals. Disabled for reduced motion. |
+
+### Placement
+
+- **Headline first and large.** 88px serif across eight columns. It was 96px
+  next to a command box that competed with it.
+- **Intro, then the install command, stacked on the left.** Before, the intro
+  and command sat in two columns with the command bottom-aligned. Now there is
+  one reading path: headline, a calm line, then the action. The copy pill is
+  the cream-filled primary.
+- **Demo moved to the full 1312px content width and made taller** (456px screen
+  at 15px type, from 340px at 14px). The page's product is the demo, so it now
+  gets the width Trace gives its product frames.
+- **Nav:** GitHub is an outlined pill and Install is the cream pill, both at
+  the right. The nav is 80px tall.
+- **Questions:** the heading sits beside the list in a 5/7 grid, and each
+  question stacks over its answer. The full-width rule above the section is
+  Trace's section divider.
+- **Footer:** one row with the brand on the left, then GitHub and the year.
+  It has a full-width top rule.
+
+### Verification
+
+- Chrome at 1440 x 900 and 375 x 812. No horizontal overflow. No console
+  errors. All five font files load with status 200.
+- The demo loops through add, index, search, and play. Reduced motion shows the
+  static search result.
+- Lowest text contrast 5.3:1, against a 4.5:1 requirement.
+- The set of visible text strings, attributes, and links is identical before
+  and after.
+- Screenshots: `design-refs/trace-ghostty-1440.png` and
+  `design-refs/trace-ghostty-375.png` (full page), and the `-hero.png` files
+  (first view). Captured with reduced motion so the demo holds its search result.
+- Not matched: LT Superior Serif (commercial), Trace's photographic frames and
+  its hero video, and Pretendard, which Ghostty uses for its title.
+
+## History: edit bay (earlier October 2026)
+
 
 The screening-room pass was warm and careful, but the page said too little.
 The demo was mostly empty screen, and the only content below it was the FAQ.
