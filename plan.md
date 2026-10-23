@@ -1213,6 +1213,94 @@ yet — press i to make it searchable first" without leaving the workspace.
 - Ruff, `ruff format --check`, ty, and `py_compile` pass on
   `src/video_pipeline/tui.py` and `dev/preview.py`.
 
+## Agent tools over MCP
+
+Status: implemented and verified on `feat/mcp-server`. Awaiting user review.
+
+`reelcall mcp --data-dir <library>` runs a local stdio MCP server for one
+library. Agents search the library, then check candidates by looking at real
+frames before they answer. Search alone places an overlapping moment first
+for only 21/30 reference queries, and visual-only search for 16/30. The agent's
+own vision is the verification step, so this slice adds no new model.
+
+### Tools
+
+| Tool | Behavior | Needs the job service |
+| --- | --- | --- |
+| `list_videos` | IDs, filenames, durations, audio presence, and indexing state. | No |
+| `search_videos` | Existing ranked search in `all` mode, with each window's stored thumbnail as an image. | No |
+| `view_moment` | 1 to 12 frames at the midpoints of equal parts of a span, each labeled with its decoded timestamp. | No |
+| `add_video` | Stores a copy through `VideoStore.add` and queues the existing index job. | Yes |
+| `make_clip` | Queues the existing clip job after the same duration check as the API. | Yes |
+| `job_status` | The job record plus the host path of its output file. | Yes |
+
+The server instructions tell the agent that scores are not confidence values,
+that windows are about eight seconds long, and that it should check frames
+before it states a timestamp.
+
+### Tool decision
+
+Reviewed the official [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
+2.3.0 in its installed source. Version 2 renames `FastMCP` to `MCPServer`.
+Its tool decorator builds input schemas from Pydantic annotations, runs
+synchronous tools in a worker thread, and converts its `Image` helper into
+image content. Expected failures raised as `ToolError` reach the agent with
+their message. Other exceptions reach it only as a generic failure, so tools
+convert the same expected errors the CLI reports.
+
+- Use stdio only. A local library needs no HTTP transport, port, or
+  authentication.
+- Call the stores directly, like the CLI, rather than through the HTTP API.
+  The agent then needs no running `serve` process for search.
+- Connect to the job service on the first job tool. Start local services
+  through `LocalService` unless `VIDEO_PIPELINE_DATABASE_URL` is set, which
+  matches `reelcall ui`.
+- Load the query model in a background thread at startup, as the API does.
+- Add `read_frames` beside `read_window`. It seeks separately for each
+  requested second, so frames far apart in a long video do not decode
+  everything between them. Search sampling and the index profile are
+  unchanged.
+
+### Local verification
+
+Indexed the five-video corpus into an ignored `outputs/mcp-library` with the
+CLI on MPS: 162 windows in 13 minutes on a quiet M1, 4.4 to 4.9 s per window.
+An earlier run of the same corpus took about four times longer while a
+browser agent and a second model process shared the machine. Claude Code ran
+the server through `--mcp-config` in print mode, so no user configuration
+changed.
+
+- `list_videos` returned all five videos with durations, audio presence, and
+  indexing state, before and after indexing.
+- `view_moment` returned six labeled frames of the Witch Hat Atelier trailer
+  between 16 and 24 s. Their decoded timestamps were 16.683 to 23.357 s.
+- Two reference queries through `search_videos`, then `view_moment`:
+
+  | Query | First search window | Agent answer after frames | Reference |
+  | --- | --- | --- | --- |
+  | Magic user firing sharp ice projectiles | 16 to 24 s | 19.2 to 19.5 s | 19.1 to 20.3 s |
+  | Girl in a pointed black witch hat in a billowing robe | 24 to 32 s | 27.5 s | 25.7 to 27.5 s |
+
+  The agent narrowed each 8 s window with denser frame requests. It said it
+  could not confirm who cast the ice from the frames. The run cost $0.43 and
+  took 29 s. Two queries do not measure accuracy.
+- `make_clip` queued a 19.0 to 20.5 s clip. The worker finished it within
+  seconds. `ffprobe` on the reported path: 1.50 s, 1280 x 720 H.264 with AAC.
+- `add_video` stored a five-second video-only file and queued indexing. The
+  job finished after the worker's first model download for this library:
+  one window in 75 s on CPU.
+- `job_status` reported queued, running, and succeeded states and the output
+  path. During the model download it showed `indexing` with no progress
+  fields, and the agent could not tell a slow job from a stuck one.
+
+### Current limits
+
+- Measure agent accuracy across all 30 references against search alone.
+- A first index job in a new library downloads the model without reporting
+  progress.
+- `add_video` stores a new copy each time, even for a file already in the
+  library.
+
 ## Review loop
 
 1. Confirm the current slice and its acceptance criteria.

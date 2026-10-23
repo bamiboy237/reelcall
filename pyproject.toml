@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.156.0",
     "ffpyplayer>=4.5.3,<5",
     "filelock>=4.2.4",
+    "mcp>=2.3,<3",
     "numpy>=2.5.4",
     "pillow>=13.0.0",
     "procrastinate==3.10.0",
