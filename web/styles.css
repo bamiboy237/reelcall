@@ -420,7 +420,7 @@ h1,
 /* The screen reproduces Reelcall's own terminal UI in JetBrains Mono, Ghostty's font. */
 .screen {
   position: relative;
-  height: 456px;
+  height: 368px;
   padding: var(--s2) var(--s4) 0;
   font: 400 15px / 1.6 var(--mono);
   letter-spacing: 0;
@@ -834,7 +834,8 @@ h2 {
   }
 
   .pill {
-    height: 44px;
+    height: 40px;
+    padding: 0 16px;
   }
 
   .hero {
@@ -850,12 +851,17 @@ h2 {
     font-size: 18px;
   }
 
-  /* The command wraps instead of hiding its end behind an invisible scroll. */
+  /* The command wraps instead of hiding its end behind an invisible scroll.
+     Copy stays beside it, so the box reads as one control. */
   .command {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--s2);
-    padding: var(--s2);
+    gap: 12px;
+    padding: 8px 8px 8px 14px;
+  }
+
+  .command .copy {
+    height: 32px;
+    min-width: 0;
+    padding: 0 14px;
   }
 
   .command code {
@@ -882,7 +888,7 @@ h2 {
   }
 
   .screen {
-    height: 300px;
+    height: 248px;
     padding: 12px 14px 0;
     font-size: 12px;
   }
