@@ -320,17 +320,6 @@ h1 {
   min-width: 78px;
 }
 
-.install-note {
-  margin-top: var(--s2);
-  font-size: var(--t-small);
-  line-height: 1.5;
-  color: var(--ink-3);
-}
-
-.install-note code {
-  color: var(--ink-2);
-}
-
 /* Entrance: the hero rises in once, in reading order. */
 @keyframes rise {
   from {
